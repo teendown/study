@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus,
   Search,
@@ -10,6 +10,7 @@ import {
   Square,
   Sparkles,
   Zap,
+  Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,28 @@ const difficultyLabels: Record<number, { label: string; color: string }> = {
   5: { label: '매우 어려움', color: 'bg-red-500/10 text-red-600' },
 };
 
+function formatDateKey(isoString: string): string {
+  if (!isoString) return '날짜 미상';
+  try {
+    const d = new Date(isoString);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '날짜 미상';
+  }
+}
+
+function getDateLabel(dateKey: string): string {
+  const today = formatDateKey(new Date().toISOString());
+  const yesterday = formatDateKey(new Date(Date.now() - 86400000).toISOString());
+
+  if (dateKey === today) return `오늘 (${dateKey})`;
+  if (dateKey === yesterday) return `어제 (${dateKey})`;
+  return dateKey;
+}
+
 export function VocabularyList({
   initialData,
   onAddClick,
@@ -43,14 +66,30 @@ export function VocabularyList({
 }: VocabularyListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string | 'all'>('all');
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     onSearch(searchQuery);
   };
 
-  const items = initialData?.items ?? [];
+  const rawItems = initialData?.items ?? [];
   const total = initialData?.total ?? 0;
+
+  // 등록 날짜 목록 추출
+  const availableDates = useMemo(() => {
+    const dateSet = new Set<string>();
+    rawItems.forEach((v) => {
+      dateSet.add(formatDateKey(v.createdAt));
+    });
+    return Array.from(dateSet).sort().reverse();
+  }, [rawItems]);
+
+  // 날짜 필터링된 단어 목록
+  const items = useMemo(() => {
+    if (selectedDateFilter === 'all') return rawItems;
+    return rawItems.filter((v) => formatDateKey(v.createdAt) === selectedDateFilter);
+  }, [rawItems, selectedDateFilter]);
 
   const toggleSelect = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -93,17 +132,47 @@ export function VocabularyList({
         </Button>
       </div>
 
+      {/* 📅 등록 날짜별 필터 칩 */}
+      {availableDates.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+          <Button
+            variant={selectedDateFilter === 'all' ? 'default' : 'outline'}
+            size="sm"
+            className="h-7 text-[11px] px-2.5 rounded-lg shrink-0 font-semibold"
+            onClick={() => setSelectedDateFilter('all')}
+          >
+            전체 날짜 ({rawItems.length})
+          </Button>
+          {availableDates.map((dKey) => {
+            const countOnDate = rawItems.filter((v) => formatDateKey(v.createdAt) === dKey).length;
+            return (
+              <Button
+                key={dKey}
+                variant={selectedDateFilter === dKey ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-[11px] px-2.5 rounded-lg shrink-0 font-semibold gap-1"
+                onClick={() => setSelectedDateFilter(dKey)}
+              >
+                <Calendar className="h-3 w-3" />
+                {getDateLabel(dKey)} ({countOnDate})
+              </Button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 총 개수 & 전체 선택 */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <p>
-          총 <span className="font-semibold text-foreground">{total}</span>개
+          표시 중인 단어 <span className="font-semibold text-foreground">{items.length}</span>개
+          {selectedDateFilter !== 'all' && ` (전체 ${total}개)`}
         </p>
         {items.length > 0 && (
           <button
             onClick={selectAll}
             className="text-xs font-semibold text-primary hover:underline"
           >
-            {selectedIds.size === items.length ? '전체 해제' : '전체 선택'}
+            {selectedIds.size === items.length ? '전체 해제' : '현재 목록 전체 선택'}
           </button>
         )}
       </div>
@@ -123,19 +192,13 @@ export function VocabularyList({
               <BookOpen className="h-8 w-8 text-primary" />
             </div>
             <h3 className="text-base font-semibold mb-1">
-              {searchQuery ? '검색 결과가 없습니다' : '등록된 단어가 없습니다'}
+              {searchQuery ? '검색 결과가 없습니다' : '해당 날짜에 등록된 단어가 없습니다'}
             </h3>
             <p className="text-sm text-muted-foreground mb-4">
               {searchQuery
                 ? '다른 검색어를 시도해보세요.'
-                : '첫 번째 단어를 추가해보세요!'}
+                : '새로운 단어를 추가해보세요!'}
             </p>
-            {!searchQuery && (
-              <Button onClick={onAddClick} size="sm" className="gap-1.5 font-bold">
-                <Plus className="h-3.5 w-3.5" />
-                단어 추가
-              </Button>
-            )}
           </CardContent>
         </Card>
       )}
@@ -193,12 +256,17 @@ export function VocabularyList({
                       </div>
                     </div>
 
-                    <Badge
-                      variant="secondary"
-                      className={`shrink-0 text-[10px] ${diff.color}`}
-                    >
-                      {diff.label}
-                    </Badge>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] ${diff.color}`}
+                      >
+                        {diff.label}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatDateKey(vocab.createdAt)}
+                      </span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
