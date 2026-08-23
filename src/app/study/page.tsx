@@ -1,42 +1,241 @@
-import type { Metadata } from 'next';
-import { GraduationCap } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+'use client';
 
-export const metadata: Metadata = {
-  title: '학습 — STUDY QUEST',
-  description: '오늘의 학습을 시작하세요.',
-};
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+  ModeSelector,
+  StudySession,
+  StudyResult,
+  generateQuestions,
+  saveStudySessionAction,
+  type GeneratedQuestion,
+  type SessionSummary,
+} from '@/features/learning';
+import { getVocabulariesAction } from '@/features/vocabulary/services';
+import type { VocabularyWithItem } from '@/features/vocabulary/types';
+import type { StudyMode } from '@/types';
+import { Loader2 } from 'lucide-react';
 
-/**
- * 학습 페이지 (Placeholder)
- * Phase 4에서 본격 구현 예정
- */
+// DB 연결 전 샘플 단어 데이터
+const DEFAULT_FALLBACK_VOCAB: VocabularyWithItem[] = [
+  {
+    id: 's1',
+    word: 'abandon',
+    meaning: '포기하다, 버리다',
+    partOfSpeech: 'v.',
+    pronunciation: '[əˈbændən]',
+    audioUrl: null,
+    exampleSentence: 'He decided to abandon the plan.',
+    exampleTranslation: '그는 계획을 포기하기로 결정했다.',
+    synonyms: 'give up',
+    antonyms: 'maintain',
+    frequency: 'high',
+    difficulty: 2,
+    grade: 10,
+    source: '고1 어휘',
+    learningItemId: 'item-1',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 's2',
+    word: 'significant',
+    meaning: '중요한, 상당한',
+    partOfSpeech: 'adj.',
+    pronunciation: '[sɪɡˈnɪfɪkənt]',
+    audioUrl: null,
+    exampleSentence: 'A significant increase in score.',
+    exampleTranslation: '성적의 상당한 향상.',
+    synonyms: 'important',
+    antonyms: 'trivial',
+    frequency: 'high',
+    difficulty: 3,
+    grade: 10,
+    source: '고1 어휘',
+    learningItemId: 'item-2',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 's3',
+    word: 'contribute',
+    meaning: '기여하다, 공헌하다',
+    partOfSpeech: 'v.',
+    pronunciation: '[kənˈtrɪbjuːt]',
+    audioUrl: null,
+    exampleSentence: 'Hard work contributed to success.',
+    exampleTranslation: '노력이 성공에 기여했다.',
+    synonyms: 'support',
+    antonyms: 'detract',
+    frequency: 'high',
+    difficulty: 3,
+    grade: 10,
+    source: '고1 어휘',
+    learningItemId: 'item-3',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 's4',
+    word: 'maintain',
+    meaning: '유지하다, 지속하다',
+    partOfSpeech: 'v.',
+    pronunciation: '[meɪnˈteɪn]',
+    audioUrl: null,
+    exampleSentence: 'Maintain a good habit.',
+    exampleTranslation: '좋은 습관을 유지하다.',
+    synonyms: 'preserve, keep',
+    antonyms: 'abandon',
+    frequency: 'high',
+    difficulty: 2,
+    grade: 10,
+    source: '고1 어휘',
+    learningItemId: 'item-4',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 's5',
+    word: 'environment',
+    meaning: '환경, 자연',
+    partOfSpeech: 'n.',
+    pronunciation: '[ɪnˈvaɪrənmənt]',
+    audioUrl: null,
+    exampleSentence: 'Protect our environment.',
+    exampleTranslation: '우리의 환경을 보호하자.',
+    synonyms: 'surroundings',
+    antonyms: null,
+    frequency: 'high',
+    difficulty: 1,
+    grade: 10,
+    source: '고1 어휘',
+    learningItemId: 'item-5',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+function StudyContent() {
+  const searchParams = useSearchParams();
+  const initialModeParam = (searchParams.get('mode') as StudyMode) || 'learning';
+
+  // 상태 관리: 'selector' | 'studying' | 'result'
+  const [viewState, setViewState] = useState<'selector' | 'studying' | 'result'>('selector');
+  const [vocabList, setVocabList] = useState<VocabularyWithItem[]>(DEFAULT_FALLBACK_VOCAB);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // 세션 상태
+  const [activeMode, setActiveMode] = useState<StudyMode>(initialModeParam);
+  const [activeQuestions, setActiveQuestions] = useState<GeneratedQuestion[]>([]);
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+
+  // 단어 목록 로드
+  const loadVocabs = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await getVocabulariesAction({ limit: 100 });
+      if (res.success && res.data && res.data.items.length > 0) {
+        setVocabList(res.data.items);
+      }
+    } catch {
+      // fallback 유지
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadVocabs();
+  }, [loadVocabs]);
+
+  // 학습 시작
+  const handleStartSession = (mode: StudyMode, count: number, customVocabs?: VocabularyWithItem[]) => {
+    const targetVocabs = customVocabs && customVocabs.length > 0 ? customVocabs : vocabList;
+    const questions = generateQuestions(targetVocabs, mode, count);
+
+    if (questions.length === 0) {
+      alert('출제할 수 있는 단어가 부족합니다.');
+      return;
+    }
+
+    setActiveMode(mode);
+    setActiveQuestions(questions);
+    setViewState('studying');
+  };
+
+  // 학습 완료
+  const handleFinishSession = async (summary: SessionSummary) => {
+    setSessionSummary(summary);
+    setViewState('result');
+
+    // DB에 학습 세션 결과 저장
+    try {
+      await saveStudySessionAction(summary);
+    } catch {
+      // offline/fallback
+    }
+  };
+
+  // 다시 학습하기
+  const handleRetry = () => {
+    setViewState('selector');
+  };
+
+  // 틀린 단어만 다시 학습하기
+  const handleRetryWrongOnly = () => {
+    if (!sessionSummary || sessionSummary.wrongItems.length === 0) return;
+    handleStartSession(activeMode, sessionSummary.wrongItems.length, sessionSummary.wrongItems);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl py-2">
+      {viewState === 'selector' && (
+        <ModeSelector
+          onStart={(mode, count) => handleStartSession(mode, count)}
+          totalVocabCount={vocabList.length}
+        />
+      )}
+
+      {viewState === 'studying' && activeQuestions.length > 0 && (
+        <StudySession
+          questions={activeQuestions}
+          mode={activeMode}
+          onFinish={handleFinishSession}
+          onExit={() => setViewState('selector')}
+        />
+      )}
+
+      {viewState === 'result' && sessionSummary && (
+        <StudyResult
+          summary={sessionSummary}
+          onRetry={handleRetry}
+          onRetryWrongOnly={
+            sessionSummary.wrongItems.length > 0 ? handleRetryWrongOnly : undefined
+          }
+        />
+      )}
+    </div>
+  );
+}
+
 export default function StudyPage() {
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">학습</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          AI가 추천하는 오늘의 학습을 시작하세요
-        </p>
-      </div>
-
-      <Card className="border-dashed">
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="mb-4 rounded-2xl bg-primary/10 p-4">
-            <GraduationCap className="h-10 w-10 text-primary" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">학습 기능 준비 중</h3>
-          <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-            단어를 등록하면 객관식, 빈칸, 번역 등 다양한 문제로
-            학습할 수 있습니다.
-          </p>
-          <Button variant="outline" disabled>
-            곧 만나요! 🚀
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <StudyContent />
+    </Suspense>
   );
 }
