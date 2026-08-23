@@ -1,8 +1,6 @@
 // ===========================
 // Vocabulary Server Actions
 // ===========================
-// 설계서 섹션 25, 26 기반
-// UI → Server Action → Repository → Drizzle → Turso
 
 'use server';
 
@@ -23,9 +21,7 @@ import {
   type SearchVocabularyInput,
 } from '../schemas';
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
-
-// 영어 과목 ID를 가져오는 헬퍼
-// Phase 2에서 seed된 ENGLISH 과목 사용
+import { searchWordOnline, type WordSearchResult } from './dictionarySearch';
 import { getDb, schema } from '@/lib/db/client';
 import { eq } from 'drizzle-orm';
 
@@ -43,10 +39,24 @@ async function getEnglishSubjectId(): Promise<string> {
   return subject.id;
 }
 
-/** 서버 액션 결과 타입 */
 type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+/**
+ * 인터넷 온라인 사전 자동 검색
+ */
+export async function searchWordOnlineAction(
+  word: string
+): Promise<ActionResult<WordSearchResult>> {
+  try {
+    const result = await searchWordOnline(word);
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '단어 검색에 실패했습니다.';
+    return { success: false, error: message };
+  }
+}
 
 /**
  * 단어 등록
@@ -58,7 +68,6 @@ export async function addVocabularyAction(
     const parsed = createVocabularySchema.parse(input);
     const subjectId = await getEnglishSubjectId();
 
-    // 중복 확인
     const isDuplicate = await checkDuplicateWord(subjectId, parsed.word);
     if (isDuplicate) {
       return { success: false, error: `"${parsed.word}"은(는) 이미 등록된 단어입니다.` };

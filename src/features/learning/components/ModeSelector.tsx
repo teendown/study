@@ -8,18 +8,26 @@ import { Badge } from '@/components/ui/badge';
 import type { StudyMode } from '@/types';
 
 interface ModeSelectorProps {
-  onStart: (mode: StudyMode, questionCount: number) => void;
+  onStart: (mode: StudyMode | 'speed_shadowing', questionCount: number) => void;
   totalVocabCount: number;
 }
 
 const MODES: {
-  id: StudyMode;
+  id: StudyMode | 'speed_shadowing';
   title: string;
   desc: string;
   badge: string;
   icon: React.ReactNode;
   gradient: string;
 }[] = [
+  {
+    id: 'speed_shadowing',
+    title: '스피드 섀도잉 (Speed Shadowing)',
+    desc: '단어가 스피디하게 넘어가며 원어민 발음으로 바로 따라 읽는 집중 각인 학습!',
+    badge: '인기 🔥',
+    icon: <Sparkles className="h-6 w-6 text-pink-500" />,
+    gradient: 'from-pink-500/15 via-rose-500/5 to-transparent hover:border-pink-500/40',
+  },
   {
     id: 'learning',
     title: '기본 학습 모드',
@@ -30,7 +38,7 @@ const MODES: {
   },
   {
     id: 'speed',
-    title: '스피드 모드 (SPEED)',
+    title: '스피드 퀴즈 (SPEED QUIZ)',
     desc: '문제당 7~10초 제한! 빠른 순발력과 추가 보너스 XP 획득 도전.',
     badge: '도전',
     icon: <Zap className="h-6 w-6 text-amber-500" />,
@@ -47,7 +55,7 @@ const MODES: {
 ];
 
 export function ModeSelector({ onStart, totalVocabCount }: ModeSelectorProps) {
-  const [selectedMode, setSelectedMode] = useState<StudyMode>('learning');
+  const [selectedMode, setSelectedMode] = useState<StudyMode | 'speed_shadowing'>('speed_shadowing');
   const [count, setCount] = useState<number>(10);
 
   return (

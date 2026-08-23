@@ -6,6 +6,7 @@ import {
   ModeSelector,
   StudySession,
   StudyResult,
+  SpeedShadowing,
   generateQuestions,
   saveStudySessionAction,
   type GeneratedQuestion,
@@ -16,7 +17,6 @@ import type { VocabularyWithItem } from '@/features/vocabulary/types';
 import type { StudyMode } from '@/types';
 import { Loader2 } from 'lucide-react';
 
-// DB 연결 전 샘플 단어 데이터
 const DEFAULT_FALLBACK_VOCAB: VocabularyWithItem[] = [
   {
     id: 's1',
@@ -119,8 +119,8 @@ function StudyContent() {
   const searchParams = useSearchParams();
   const initialModeParam = (searchParams.get('mode') as StudyMode) || 'learning';
 
-  // 상태 관리: 'selector' | 'studying' | 'result'
-  const [viewState, setViewState] = useState<'selector' | 'studying' | 'result'>('selector');
+  // 뷰 상태: 'selector' | 'studying' | 'shadowing' | 'result'
+  const [viewState, setViewState] = useState<'selector' | 'studying' | 'shadowing' | 'result'>('selector');
   const [vocabList, setVocabList] = useState<VocabularyWithItem[]>(DEFAULT_FALLBACK_VOCAB);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -128,6 +128,7 @@ function StudyContent() {
   const [activeMode, setActiveMode] = useState<StudyMode>(initialModeParam);
   const [activeQuestions, setActiveQuestions] = useState<GeneratedQuestion[]>([]);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [targetShadowingList, setTargetShadowingList] = useState<VocabularyWithItem[]>([]);
 
   // 단어 목록 로드
   const loadVocabs = useCallback(async () => {
@@ -137,9 +138,8 @@ function StudyContent() {
       if (res.success && res.data && res.data.items.length > 0) {
         setVocabList(res.data.items);
       }
-    } catch {
-      // fallback 유지
-    } finally {
+    } catch {}
+    finally {
       setIsLoading(false);
     }
   }, []);
@@ -148,40 +148,63 @@ function StudyContent() {
     loadVocabs();
   }, [loadVocabs]);
 
-  // 학습 시작
-  const handleStartSession = (mode: StudyMode, count: number, customVocabs?: VocabularyWithItem[]) => {
+  // 학습 시작 (일반 퀴즈 vs 스피드 섀도잉)
+  const handleStartSession = (
+    mode: StudyMode | 'speed_shadowing',
+    count: number,
+    customVocabs?: VocabularyWithItem[]
+  ) => {
     const targetVocabs = customVocabs && customVocabs.length > 0 ? customVocabs : vocabList;
-    const questions = generateQuestions(targetVocabs, mode, count);
 
+    if (mode === 'speed_shadowing') {
+      const sliced = targetVocabs.slice(0, count);
+      setTargetShadowingList(sliced);
+      setViewState('shadowing');
+      return;
+    }
+
+    const questions = generateQuestions(targetVocabs, mode as StudyMode, count);
     if (questions.length === 0) {
       alert('출제할 수 있는 단어가 부족합니다.');
       return;
     }
 
-    setActiveMode(mode);
+    setActiveMode(mode as StudyMode);
     setActiveQuestions(questions);
     setViewState('studying');
   };
 
-  // 학습 완료
+  // 섀도잉 완주 시
+  const handleFinishShadowing = (xpEarned: number, totalCount: number) => {
+    const dummySummary: SessionSummary = {
+      mode: 'speed',
+      totalQuestions: totalCount,
+      correctCount: totalCount,
+      wrongCount: 0,
+      accuracy: 100,
+      totalXpEarned: xpEarned,
+      maxCombo: totalCount,
+      totalTimeSeconds: Math.round(totalCount * 2.5),
+      answers: [],
+      wrongItems: [],
+    };
+    handleFinishSession(dummySummary);
+  };
+
+  // 일반 문제 세션 완료
   const handleFinishSession = async (summary: SessionSummary) => {
     setSessionSummary(summary);
     setViewState('result');
 
-    // DB에 학습 세션 결과 저장
     try {
       await saveStudySessionAction(summary);
-    } catch {
-      // offline/fallback
-    }
+    } catch {}
   };
 
-  // 다시 학습하기
   const handleRetry = () => {
     setViewState('selector');
   };
 
-  // 틀린 단어만 다시 학습하기
   const handleRetryWrongOnly = () => {
     if (!sessionSummary || sessionSummary.wrongItems.length === 0) return;
     handleStartSession(activeMode, sessionSummary.wrongItems.length, sessionSummary.wrongItems);
@@ -204,6 +227,7 @@ function StudyContent() {
         />
       )}
 
+      {/* 1. 일반 / 스피드 퀴즈 세션 */}
       {viewState === 'studying' && activeQuestions.length > 0 && (
         <StudySession
           questions={activeQuestions}
@@ -213,6 +237,16 @@ function StudyContent() {
         />
       )}
 
+      {/* 2. 스피드 섀도잉 모드 (따라 말하기) */}
+      {viewState === 'shadowing' && targetShadowingList.length > 0 && (
+        <SpeedShadowing
+          vocabList={targetShadowingList}
+          onFinish={handleFinishShadowing}
+          onExit={() => setViewState('selector')}
+        />
+      )}
+
+      {/* 3. 학습 결과 리포트 */}
       {viewState === 'result' && sessionSummary && (
         <StudyResult
           summary={sessionSummary}

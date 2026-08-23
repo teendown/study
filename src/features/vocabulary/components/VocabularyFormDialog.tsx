@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CreateVocabularyInput } from '@/features/vocabulary/schemas';
+import { searchWordOnlineAction } from '../services';
+import type { CreateVocabularyInput } from '../schemas';
 
 interface VocabularyFormDialogProps {
   open: boolean;
@@ -29,9 +30,6 @@ interface VocabularyFormDialogProps {
   mode?: 'create' | 'edit';
 }
 
-/**
- * 단어 등록/수정 다이얼로그
- */
 export function VocabularyFormDialog({
   open,
   onOpenChange,
@@ -40,6 +38,7 @@ export function VocabularyFormDialog({
   mode = 'create',
 }: VocabularyFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [error, setError] = useState('');
 
   const [word, setWord] = useState(initialData?.word ?? '');
@@ -52,6 +51,37 @@ export function VocabularyFormDialog({
   const [antonyms, setAntonyms] = useState(initialData?.antonyms ?? '');
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 1);
   const [source, setSource] = useState(initialData?.source ?? '');
+
+  // 인터넷 실시간 자동 검색
+  const handleAutoSearch = async () => {
+    if (!word.trim()) {
+      setError('검색할 영어 단어를 먼저 입력해주세요.');
+      return;
+    }
+
+    setError('');
+    setIsSearchingOnline(true);
+    try {
+      const res = await searchWordOnlineAction(word.trim());
+      if (res.success && res.data) {
+        const d = res.data;
+        if (d.meaning && d.meaning !== '의미 검색 필요') setMeaning(d.meaning);
+        if (d.partOfSpeech) setPartOfSpeech(d.partOfSpeech);
+        if (d.pronunciation) setPronunciation(d.pronunciation);
+        if (d.exampleSentence) setExampleSentence(d.exampleSentence);
+        if (d.exampleTranslation) setExampleTranslation(d.exampleTranslation);
+        if (d.synonyms) setSynonyms(d.synonyms);
+        if (d.antonyms) setAntonyms(d.antonyms);
+        if (d.source) setSource(d.source);
+      } else if (!res.success) {
+        setError(res.error || '단어 정보를 찾지 못했습니다.');
+      }
+    } catch {
+      setError('인터넷 사전 검색 중 오류가 발생했습니다.');
+    } finally {
+      setIsSearchingOnline(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,7 +111,6 @@ export function VocabularyFormDialog({
         source: source.trim(),
       });
 
-      // 성공 시 폼 초기화 (create 모드만)
       if (mode === 'create') {
         setWord('');
         setMeaning('');
@@ -111,25 +140,47 @@ export function VocabularyFormDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 에러 메시지 */}
           {error && (
-            <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive font-medium">
               {error}
             </div>
           )}
 
-          {/* 필수: 단어 */}
+          {/* 단어 입력 & 인터넷 자동 검색 버튼 */}
           <div className="space-y-1.5">
             <Label htmlFor="form-word">
               단어 <span className="text-destructive">*</span>
             </Label>
-            <Input
-              id="form-word"
-              placeholder="abandon"
-              value={word}
-              onChange={(e) => setWord(e.target.value)}
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <Input
+                id="form-word"
+                placeholder="significant"
+                value={word}
+                onChange={(e) => setWord(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAutoSearch();
+                  }
+                }}
+                autoFocus
+                className="text-base font-semibold"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="font-bold gap-1.5 shrink-0 border border-primary/20 hover:bg-primary/10 text-primary"
+                onClick={handleAutoSearch}
+                disabled={isSearchingOnline || !word.trim()}
+              >
+                {isSearchingOnline ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                자동 검색
+              </Button>
+            </div>
           </div>
 
           {/* 필수: 뜻 */}
@@ -139,7 +190,7 @@ export function VocabularyFormDialog({
             </Label>
             <Input
               id="form-meaning"
-              placeholder="포기하다, 버리다"
+              placeholder="중요한, 상당한"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
             />
@@ -168,7 +219,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-pronunciation">발음</Label>
               <Input
                 id="form-pronunciation"
-                placeholder="[əˈbændən]"
+                placeholder="[sɪɡˈnɪfɪkənt]"
                 value={pronunciation}
                 onChange={(e) => setPronunciation(e.target.value)}
               />
@@ -180,7 +231,7 @@ export function VocabularyFormDialog({
             <Label htmlFor="form-example">예문</Label>
             <Textarea
               id="form-example"
-              placeholder="He decided to abandon the plan."
+              placeholder="There has been a significant increase in sales."
               value={exampleSentence}
               onChange={(e) => setExampleSentence(e.target.value)}
               rows={2}
@@ -192,7 +243,7 @@ export function VocabularyFormDialog({
             <Label htmlFor="form-example-trans">예문 해석</Label>
             <Input
               id="form-example-trans"
-              placeholder="그는 그 계획을 포기하기로 결정했다."
+              placeholder="매출에 상당한 증가가 있었다."
               value={exampleTranslation}
               onChange={(e) => setExampleTranslation(e.target.value)}
             />
@@ -204,7 +255,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-synonyms">유의어</Label>
               <Input
                 id="form-synonyms"
-                placeholder="give up, quit"
+                placeholder="important, notable"
                 value={synonyms}
                 onChange={(e) => setSynonyms(e.target.value)}
               />
@@ -213,7 +264,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-antonyms">반의어</Label>
               <Input
                 id="form-antonyms"
-                placeholder="keep, maintain"
+                placeholder="trivial, minor"
                 value={antonyms}
                 onChange={(e) => setAntonyms(e.target.value)}
               />
@@ -251,7 +302,7 @@ export function VocabularyFormDialog({
             </div>
           </div>
 
-          {/* 제출 버튼 */}
+          {/* 버튼 */}
           <div className="flex gap-2 pt-2">
             <Button
               type="button"
@@ -261,11 +312,7 @@ export function VocabularyFormDialog({
             >
               취소
             </Button>
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={isSubmitting}
-            >
+            <Button type="submit" className="flex-1 font-bold" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
