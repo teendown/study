@@ -1,4 +1,7 @@
 // ===========================
-// Statistics Feature
+// Statistics Feature Index
 // ===========================
-// Phase 6 이후에 구현합니다.
+
+export * from './types';
+export * from './services';
+export * from './components';
