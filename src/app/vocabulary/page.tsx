@@ -23,8 +23,10 @@ import {
   type PhraseListResult,
   type CreatePhraseInput,
 } from '@/features/vocabulary';
-import { BookOpen, Layers } from 'lucide-react';
+import { BookOpen, Layers, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { OcrModal } from '@/features/ocr';
+import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 
 // 샘플 단어
 const SAMPLE_VOCABULARY: VocabularyWithItem[] = [
@@ -142,7 +144,55 @@ export default function VocabularyPage() {
   const [phraseFormMode, setPhraseFormMode] = useState<'create' | 'edit'>('create');
   const [phraseEditData, setPhraseEditData] = useState<Partial<CreatePhraseInput> | undefined>();
 
-  // 단어 로드
+  // OCR 모달 상태
+  const [isOcrOpen, setIsOcrOpen] = useState(false);
+
+  // OCR 추출 단어 일괄 저장 핸들러
+  const handleOcrSaveWords = async (extracted: ExtractedWordCandidate[]) => {
+    for (const item of extracted) {
+      const input: CreateVocabularyInput = {
+        word: item.word,
+        meaning: item.meaning || '의미 미입력',
+        partOfSpeech: item.partOfSpeech || '',
+        pronunciation: '',
+        exampleSentence: '',
+        exampleTranslation: '',
+        synonyms: '',
+        antonyms: '',
+        difficulty: item.difficulty || 2,
+        source: 'OCR 사진 수집',
+      };
+
+      try {
+        await addVocabularyAction(input);
+      } catch {
+        // 로컬 mock 추가
+        const newLocal: VocabularyWithItem = {
+          id: `ocr-${item.word}-${Date.now()}`,
+          word: item.word,
+          meaning: item.meaning || '의미 미입력',
+          partOfSpeech: item.partOfSpeech || null,
+          pronunciation: null,
+          audioUrl: null,
+          exampleSentence: null,
+          exampleTranslation: null,
+          synonyms: null,
+          antonyms: null,
+          frequency: null,
+          difficulty: item.difficulty || 2,
+          grade: 10,
+          source: 'OCR 사진 수집',
+          learningItemId: `ocr-item-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        SAMPLE_VOCABULARY.unshift(newLocal);
+      }
+    }
+
+    loadVocabularies();
+    alert(`총 ${extracted.length}개의 단어가 단어장에 성공적으로 등록되었습니다! 🎉`);
+  };
   const loadVocabularies = useCallback(async (query: string = '') => {
     setIsVocabLoading(true);
     try {
@@ -298,31 +348,45 @@ export default function VocabularyPage() {
           </p>
         </div>
 
-        <div className="flex gap-1.5 p-1 bg-muted/60 rounded-xl">
+        <div className="flex items-center gap-2">
+          {/* OCR 사진 단어 추출 버튼 */}
           <Button
-            variant={activeTab === 'words' ? 'default' : 'ghost'}
+            variant="outline"
             size="sm"
-            className="font-bold gap-1.5 rounded-lg"
-            onClick={() => {
-              setActiveTab('words');
-              setSelectedVocab(null);
-            }}
+            className="font-bold gap-1.5 border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary"
+            onClick={() => setIsOcrOpen(true)}
           >
-            <BookOpen className="h-4 w-4" />
-            단어 ({vocabData.total})
+            <Camera className="h-4 w-4" />
+            <span className="hidden sm:inline">사진 단어 추출 (OCR)</span>
           </Button>
-          <Button
-            variant={activeTab === 'phrases' ? 'default' : 'ghost'}
-            size="sm"
-            className="font-bold gap-1.5 rounded-lg"
-            onClick={() => {
-              setActiveTab('phrases');
-              setSelectedPhrase(null);
-            }}
-          >
-            <Layers className="h-4 w-4" />
-            숙어 ({phraseData.total})
-          </Button>
+
+          {/* 탭 전환 */}
+          <div className="flex gap-1 p-1 bg-muted/60 rounded-xl">
+            <Button
+              variant={activeTab === 'words' ? 'default' : 'ghost'}
+              size="sm"
+              className="font-bold gap-1.5 rounded-lg"
+              onClick={() => {
+                setActiveTab('words');
+                setSelectedVocab(null);
+              }}
+            >
+              <BookOpen className="h-4 w-4" />
+              단어 ({vocabData.total})
+            </Button>
+            <Button
+              variant={activeTab === 'phrases' ? 'default' : 'ghost'}
+              size="sm"
+              className="font-bold gap-1.5 rounded-lg"
+              onClick={() => {
+                setActiveTab('phrases');
+                setSelectedPhrase(null);
+              }}
+            >
+              <Layers className="h-4 w-4" />
+              숙어 ({phraseData.total})
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -425,6 +489,13 @@ export default function VocabularyPage() {
           />
         </>
       )}
+
+      {/* OCR 모달 */}
+      <OcrModal
+        open={isOcrOpen}
+        onOpenChange={setIsOcrOpen}
+        onSaveWords={handleOcrSaveWords}
+      />
     </div>
   );
 }
