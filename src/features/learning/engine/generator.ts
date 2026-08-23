@@ -1,10 +1,10 @@
 // ===========================
-// Question Generator Engine
+// Question Generator Engine (Enhanced)
 // ===========================
-// 설계서 섹션 9, 36 기반
-// 단어 목록으로부터 문제 자동 생성
+// 설계서 섹션 9.1~9.8 기반 (객관식, 빈칸, 타이핑, 숙어, 문장완성)
 
 import type { VocabularyWithItem } from '@/features/vocabulary/types';
+import type { PhraseWithItem } from '@/features/vocabulary/types/phraseTypes';
 import type { GeneratedQuestion } from '../types';
 import type { StudyMode, QuestionType } from '@/types';
 
@@ -20,7 +20,6 @@ function shuffleArray<T>(array: T[]): T[] {
 
 /**
  * 단어 철자에 빈칸 마스킹을 적용합니다.
- * 예: "abandon" -> "a _ a n d _ n"
  */
 function createMaskedWord(word: string): { masked: string; missing: string } {
   if (word.length <= 3) {
@@ -28,7 +27,6 @@ function createMaskedWord(word: string): { masked: string; missing: string } {
   }
 
   const chars = word.split('');
-  // 1~2개 글자를 빈칸으로 처리
   const maskIndices = new Set<number>();
   const numToMask = Math.min(Math.floor(word.length / 3) + 1, 3);
 
@@ -37,15 +35,32 @@ function createMaskedWord(word: string): { masked: string; missing: string } {
     maskIndices.add(randIdx);
   }
 
-  const masked = chars
-    .map((c, i) => (maskIndices.has(i) ? '_' : c))
-    .join(' ');
-
+  const masked = chars.map((c, i) => (maskIndices.has(i) ? '_' : c)).join(' ');
   return { masked, missing: word };
 }
 
 /**
- * 단어 목록으로부터 학습 문제 세트를 생성합니다.
+ * 숙어에서 특정 단어(전치사/부사)를 빈칸으로 만듭니다. (설계서 섹션 9.8)
+ * 예: "look forward to" -> "look forward ______" (정답: to)
+ */
+function createPhraseBlankQuestion(phrase: string): { maskedPhrase: string; targetWord: string } {
+  const words = phrase.split(' ');
+  if (words.length <= 1) {
+    return { maskedPhrase: `${phrase} ______`, targetWord: phrase };
+  }
+
+  // 마지막 단어(주로 전치사) 또는 중간 단어 마스킹
+  const targetIdx = words.length - 1;
+  const targetWord = words[targetIdx];
+  const maskedPhrase = words
+    .map((w, idx) => (idx === targetIdx ? '______' : w))
+    .join(' ');
+
+  return { maskedPhrase, targetWord };
+}
+
+/**
+ * 단어 및 숙어 목록으로부터 종합 학습 문제 세트를 생성합니다.
  */
 export function generateQuestions(
   vocabList: VocabularyWithItem[],
@@ -61,24 +76,48 @@ export function generateQuestions(
   const questionTypes: QuestionType[] =
     mode === 'speed'
       ? ['multiple_choice', 'translation']
-      : ['multiple_choice', 'fill_blank', 'translation', 'typing'];
+      : ['multiple_choice', 'fill_blank', 'translation', 'typing', 'sentence_completion'];
 
   selectedVocab.forEach((vocab, idx) => {
-    // 문제 유형 선택
     const qType = questionTypes[idx % questionTypes.length];
 
+    // 1. 문장 완성형 문제 (예문이 있는 경우, 설계서 섹션 9.5)
+    if (qType === 'sentence_completion' && vocab.exampleSentence && vocab.exampleSentence.includes(vocab.word)) {
+      const sentenceMasked = vocab.exampleSentence.replace(
+        new RegExp(vocab.word, 'gi'),
+        '______'
+      );
+
+      const wrongWords = vocabList.filter((v) => v.id !== vocab.id).map((v) => v.word);
+      const shuffledWrong = shuffleArray(wrongWords).slice(0, 3);
+      while (shuffledWrong.length < 3) {
+        shuffledWrong.push(`option_${shuffledWrong.length + 1}`);
+      }
+
+      const options = shuffleArray([vocab.word, ...shuffledWrong]);
+
+      questions.push({
+        id: `q-${idx}-${Date.now()}`,
+        learningItemId: vocab.learningItemId,
+        type: 'sentence_completion',
+        questionText: `문장의 빈칸에 들어갈 가장 알맞은 어휘를 고르세요.\n"${sentenceMasked}"`,
+        correctAnswer: vocab.word,
+        options,
+        hint: vocab.exampleTranslation ? `해석: ${vocab.exampleTranslation}` : undefined,
+        explanation: `${vocab.word} (${vocab.meaning}) - ${vocab.exampleSentence}`,
+        word: vocab,
+        timeLimit: mode === 'speed' ? 10 : undefined,
+      });
+      return;
+    }
+
+    // 2. 객관식 4지선다 (설계서 섹션 9.1)
     if (qType === 'multiple_choice') {
-      // 1. 객관식: 영단어 보고 올바른 한국어 뜻 고르기
       const isEnglishToKorean = Math.random() > 0.4;
 
       if (isEnglishToKorean) {
-        // 보기 생성 (정답 1개 + 오답 3개)
-        const wrongMeanings = vocabList
-          .filter((v) => v.id !== vocab.id)
-          .map((v) => v.meaning);
-
+        const wrongMeanings = vocabList.filter((v) => v.id !== vocab.id).map((v) => v.meaning);
         const shuffledWrong = shuffleArray(wrongMeanings).slice(0, 3);
-        // 혹시 단어가 4개 미만인 경우 기본 더미 오답 보충
         while (shuffledWrong.length < 3) {
           shuffledWrong.push(`기타 다른 의미 ${shuffledWrong.length + 1}`);
         }
@@ -100,11 +139,7 @@ export function generateQuestions(
           timeLimit: mode === 'speed' ? 7 : undefined,
         });
       } else {
-        // 뜻 보고 영단어 고르기
-        const wrongWords = vocabList
-          .filter((v) => v.id !== vocab.id)
-          .map((v) => v.word);
-
+        const wrongWords = vocabList.filter((v) => v.id !== vocab.id).map((v) => v.word);
         const shuffledWrong = shuffleArray(wrongWords).slice(0, 3);
         while (shuffledWrong.length < 3) {
           shuffledWrong.push(`option_${shuffledWrong.length + 1}`);
@@ -125,8 +160,11 @@ export function generateQuestions(
           timeLimit: mode === 'speed' ? 7 : undefined,
         });
       }
-    } else if (qType === 'fill_blank') {
-      // 2. 빈칸 채우기
+      return;
+    }
+
+    // 3. 빈칸 채우기 (설계서 섹션 9.2)
+    if (qType === 'fill_blank') {
       const { masked } = createMaskedWord(vocab.word);
 
       questions.push({
@@ -140,22 +178,23 @@ export function generateQuestions(
         word: vocab,
         timeLimit: mode === 'speed' ? 10 : undefined,
       });
-    } else if (qType === 'typing' || qType === 'translation') {
-      // 3. 한글 뜻을 보고 영단어 직접 입력
-      questions.push({
-        id: `q-${idx}-${Date.now()}`,
-        learningItemId: vocab.learningItemId,
-        type: 'typing',
-        questionText: `"${vocab.meaning}"의 영단어를 입력하세요.`,
-        correctAnswer: vocab.word.toLowerCase(),
-        hint: vocab.partOfSpeech
-          ? `품사: ${vocab.partOfSpeech}, 첫 글자: ${vocab.word[0].toUpperCase()}`
-          : `첫 글자: ${vocab.word[0].toUpperCase()}`,
-        explanation: `${vocab.word} : ${vocab.meaning}`,
-        word: vocab,
-        timeLimit: mode === 'speed' ? 10 : undefined,
-      });
+      return;
     }
+
+    // 4. 타이핑 / 한글->영어 직접 입력 (설계서 섹션 9.3)
+    questions.push({
+      id: `q-${idx}-${Date.now()}`,
+      learningItemId: vocab.learningItemId,
+      type: 'typing',
+      questionText: `"${vocab.meaning}"의 영단어를 입력하세요.`,
+      correctAnswer: vocab.word.toLowerCase(),
+      hint: vocab.partOfSpeech
+        ? `품사: ${vocab.partOfSpeech}, 첫 글자: ${vocab.word[0].toUpperCase()}`
+        : `첫 글자: ${vocab.word[0].toUpperCase()}`,
+      explanation: `${vocab.word} : ${vocab.meaning}`,
+      word: vocab,
+      timeLimit: mode === 'speed' ? 10 : undefined,
+    });
   });
 
   return questions;
