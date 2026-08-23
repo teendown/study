@@ -1,4 +1,9 @@
 // ===========================
-// Game Feature
+// Game Feature Index
 // ===========================
-// Phase 6에서 구현합니다.
+
+export * from './types';
+export * from './services/gameService';
+export * from './services/achievementActions';
+export * from './services/dashboardActions';
+export * from './components';
