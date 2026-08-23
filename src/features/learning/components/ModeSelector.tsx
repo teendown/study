@@ -1,15 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { GraduationCap, RotateCcw, Zap, Sparkles } from 'lucide-react';
+import {
+  GraduationCap,
+  RotateCcw,
+  Zap,
+  Sparkles,
+  CheckCircle,
+  ListChecks,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { StudyMode } from '@/types';
+import type { VocabularyWithItem } from '@/features/vocabulary/types';
 
 interface ModeSelectorProps {
-  onStart: (mode: StudyMode | 'speed_shadowing', questionCount: number) => void;
+  onStart: (
+    mode: StudyMode | 'speed_shadowing',
+    questionCount: number,
+    customVocabs?: VocabularyWithItem[]
+  ) => void;
   totalVocabCount: number;
+  onOpenWordPicker: () => void;
+  selectedCustomVocabs: VocabularyWithItem[];
+  onClearCustomVocabs: () => void;
 }
 
 const MODES: {
@@ -54,18 +69,69 @@ const MODES: {
   },
 ];
 
-export function ModeSelector({ onStart, totalVocabCount }: ModeSelectorProps) {
+export function ModeSelector({
+  onStart,
+  totalVocabCount,
+  onOpenWordPicker,
+  selectedCustomVocabs,
+  onClearCustomVocabs,
+}: ModeSelectorProps) {
   const [selectedMode, setSelectedMode] = useState<StudyMode | 'speed_shadowing'>('speed_shadowing');
   const [count, setCount] = useState<number>(10);
+
+  const hasCustomSelection = selectedCustomVocabs.length > 0;
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">학습 모드 선택</h2>
+        <h2 className="text-2xl font-bold tracking-tight">학습 모드 & 단어 선택</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          현재 등록된 학습 단어: <span className="font-semibold text-primary">{totalVocabCount}개</span>
+          원하는 학습 방식과 학습할 단어 범위를 설정하세요
         </p>
       </div>
+
+      {/* 🎯 단어 선택 범위 카드 */}
+      <Card className="border-2 border-primary/30 bg-primary/5">
+        <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="space-y-1 text-center sm:text-left">
+            <span className="text-xs font-bold text-primary flex items-center justify-center sm:justify-start gap-1">
+              <ListChecks className="h-4 w-4" /> 학습 단어 범위 설정
+            </span>
+            <p className="text-sm font-semibold">
+              {hasCustomSelection ? (
+                <>
+                  내가 직접 선택한 단어{' '}
+                  <span className="text-primary font-bold">{selectedCustomVocabs.length}개</span>로 학습
+                </>
+              ) : (
+                `전체 등록 단어 (${totalVocabCount}개) 중 출제`
+              )}
+            </p>
+          </div>
+
+          <div className="flex gap-2 shrink-0">
+            {hasCustomSelection && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={onClearCustomVocabs}
+              >
+                전체 단어로 변경
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="font-bold border-primary/40 text-primary hover:bg-primary/10 gap-1.5"
+              onClick={onOpenWordPicker}
+            >
+              <ListChecks className="h-4 w-4" />
+              {hasCustomSelection ? '단어 다시 선택' : '단어 직접 선택하기'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 모드 카드 그리드 */}
       <div className="space-y-3">
@@ -111,37 +177,49 @@ export function ModeSelector({ onStart, totalVocabCount }: ModeSelectorProps) {
         })}
       </div>
 
-      {/* 문제 개수 선택 */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">학습 문제 수</CardTitle>
-          <CardDescription>한 번에 풀 문제 개수를 선택하세요.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-4 gap-2">
-            {[5, 10, 15, 20].map((num) => (
-              <Button
-                key={num}
-                variant={count === num ? 'default' : 'outline'}
-                className="font-bold"
-                onClick={() => setCount(num)}
-              >
-                {num}문제
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* 문제 개수 선택 (직접 선택 모드가 아닐 때만 노출) */}
+      {!hasCustomSelection && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">학습 문제 수</CardTitle>
+            <CardDescription>한 번에 풀 문제 개수를 선택하세요.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 gap-2">
+              {[5, 10, 15, 20].map((num) => (
+                <Button
+                  key={num}
+                  variant={count === num ? 'default' : 'outline'}
+                  className="font-bold"
+                  onClick={() => setCount(num)}
+                >
+                  {num}문제
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 학습 시작 버튼 */}
       <Button
         size="lg"
         className="w-full text-base font-bold gap-2 shadow-md hover:shadow-lg transition-all"
-        onClick={() => onStart(selectedMode, count)}
+        onClick={() =>
+          onStart(
+            selectedMode,
+            hasCustomSelection ? selectedCustomVocabs.length : count,
+            hasCustomSelection ? selectedCustomVocabs : undefined
+          )
+        }
         disabled={totalVocabCount === 0}
       >
         <Sparkles className="h-5 w-5" />
-        {totalVocabCount === 0 ? '단어를 먼저 등록해주세요' : '학습 시작하기'}
+        {totalVocabCount === 0
+          ? '단어를 먼저 등록해주세요'
+          : hasCustomSelection
+          ? `선택한 ${selectedCustomVocabs.length}개 단어로 시작하기`
+          : '학습 시작하기'}
       </Button>
     </div>
   );

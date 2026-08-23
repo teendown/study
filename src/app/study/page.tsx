@@ -7,6 +7,7 @@ import {
   StudySession,
   StudyResult,
   SpeedShadowing,
+  WordPickerModal,
   generateQuestions,
   saveStudySessionAction,
   type GeneratedQuestion,
@@ -130,6 +131,10 @@ function StudyContent() {
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [targetShadowingList, setTargetShadowingList] = useState<VocabularyWithItem[]>([]);
 
+  // 단어 직접 선택 상태
+  const [isWordPickerOpen, setIsWordPickerOpen] = useState(false);
+  const [selectedCustomVocabs, setSelectedCustomVocabs] = useState<VocabularyWithItem[]>([]);
+
   // 단어 목록 로드
   const loadVocabs = useCallback(async () => {
     setIsLoading(true);
@@ -221,10 +226,21 @@ function StudyContent() {
   return (
     <div className="mx-auto max-w-2xl py-2">
       {viewState === 'selector' && (
-        <ModeSelector
-          onStart={(mode, count) => handleStartSession(mode, count)}
-          totalVocabCount={vocabList.length}
-        />
+        <>
+          <ModeSelector
+            onStart={(mode, count, custom) => handleStartSession(mode, count, custom)}
+            totalVocabCount={vocabList.length}
+            onOpenWordPicker={() => setIsWordPickerOpen(true)}
+            selectedCustomVocabs={selectedCustomVocabs}
+            onClearCustomVocabs={() => setSelectedCustomVocabs([])}
+          />
+          <WordPickerModal
+            open={isWordPickerOpen}
+            onOpenChange={setIsWordPickerOpen}
+            allVocabs={vocabList}
+            onConfirm={(chosen: VocabularyWithItem[]) => setSelectedCustomVocabs(chosen)}
+          />
+        </>
       )}
 
       {/* 1. 일반 / 스피드 퀴즈 세션 */}
