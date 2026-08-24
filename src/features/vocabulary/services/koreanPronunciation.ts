@@ -1611,11 +1611,8 @@ export const COMMON_KOREAN_PRONUNCIATIONS: Record<string, string> = {
   water: '워터',
   erate: '이레이트',
   irate: '아이레이트',
-  generate: '제너레이트',
   accelerate: '액셀러레이트',
   tolerate: '톨러레이트',
-  moderate: '모더레이트',
-  operate: '오퍼레이트',
 };
 
 /**
