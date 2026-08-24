@@ -65,7 +65,7 @@ export function StudySession({
     }
   };
 
-  // 문제 변경 시 타이머 & 상태 초기화
+  // 문제 변경 시 상태 초기화
   useEffect(() => {
     startTimeRef.current = Date.now();
     setIsAnswered(false);
@@ -200,6 +200,9 @@ export function StudySession({
     return null;
   }
 
+  // 선택지가 있는 객관식 문제인지 여부
+  const hasOptions = Array.isArray(currentQ.options) && currentQ.options.length > 0;
+
   return (
     <div className="max-w-xl mx-auto space-y-4 py-4 animate-in fade-in duration-200">
       {/* 상단 헤더: 진행률, 콤보, 타이머 */}
@@ -243,29 +246,57 @@ export function StudySession({
         <CardContent className="p-5 sm:p-6 space-y-5">
           {/* 문제 헤더 & 텍스트 */}
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground font-medium">
-              {currentQ.type === 'multiple_choice'
-                ? '객관식 문제'
+            <Badge variant="outline" className="text-xs font-semibold px-2.5 py-0.5">
+              {currentQ.type === 'sentence_completion'
+                ? '문장 완성'
                 : currentQ.type === 'fill_blank'
                 ? '빈칸 완성'
-                : currentQ.type === 'sentence_completion'
-                ? '문장 완성'
-                : '스펠링 입력'}
-            </p>
-            <h3 className="text-lg sm:text-xl font-bold leading-snug">
+                : currentQ.type === 'typing'
+                ? '단어 직접 입력'
+                : '객관식 퀴즈'}
+            </Badge>
+
+            <h3 className="text-lg sm:text-xl font-bold leading-snug text-foreground">
               {currentQ.questionText}
             </h3>
 
-            {/* 1. 객관식 (단어 -> 뜻 선택인 경우 영어 단어 강조) */}
+            {/* 1. 🌟 문장 완성 (sentence_completion) 전용 시각 카드 */}
+            {currentQ.type === 'sentence_completion' && currentQ.word.exampleSentence && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border-2 border-primary/20 space-y-2.5 mt-2 shadow-xs">
+                <div className="flex items-center justify-between text-xs font-bold text-primary">
+                  <span>📖 예문 속 빈칸에 들어갈 단어는?</span>
+                  {currentQ.word.meaning && (
+                    <span className="bg-primary/10 px-2 py-0.5 rounded text-[11px]">
+                      정답 뜻: {currentQ.word.meaning}
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-lg sm:text-xl font-extrabold leading-relaxed text-foreground tracking-wide">
+                  {currentQ.word.exampleSentence.replace(
+                    new RegExp(`\\b${currentQ.word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-z]*\\b`, 'gi'),
+                    ' ______ '
+                  )}
+                </p>
+
+                {currentQ.word.exampleTranslation && (
+                  <p className="text-xs sm:text-sm text-muted-foreground pt-1 border-t border-primary/10">
+                    해석: {currentQ.word.exampleTranslation}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 2. 🌟 객관식 (단어 -> 뜻 선택인 경우 영어 단어 배너) */}
             {currentQ.type === 'multiple_choice' && currentQ.correctAnswer === currentQ.word.meaning && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-primary/5 border border-primary/10 mt-2">
-                <span className="text-2xl font-black tracking-wide text-primary">
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/15 mt-2">
+                <span className="text-2xl sm:text-3xl font-black tracking-wide text-primary">
                   {currentQ.word.word}
                 </span>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-primary shrink-0"
+                  className="h-8 w-8 text-primary shrink-0 hover:bg-primary/10"
                   onClick={() => handleSpeak(currentQ.word.word)}
                 >
                   <Volume2 className="h-4 w-4" />
@@ -278,7 +309,17 @@ export function StudySession({
               </div>
             )}
 
-            {/* 2. ⚡ 빈칸 완성 (fill_blank) 전용 시각적 카드 (한국어 뜻 + 마스킹된 빈칸 철자 or 예문 문장) */}
+            {/* 3. 🌟 객관식 (뜻 -> 단어 선택인 경우 한국어 뜻 배너) */}
+            {currentQ.type === 'multiple_choice' && currentQ.correctAnswer === currentQ.word.word && (
+              <div className="p-4 rounded-xl bg-muted/40 border mt-2 space-y-1">
+                <span className="text-xs font-semibold text-muted-foreground">맞혀야 할 의미</span>
+                <p className="text-xl sm:text-2xl font-black text-foreground">
+                  {currentQ.word.meaning}
+                </p>
+              </div>
+            )}
+
+            {/* 4. 🌟 빈칸 완성 (fill_blank) 전용 시각적 카드 */}
             {currentQ.type === 'fill_blank' && (
               <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border-2 border-primary/20 space-y-3 mt-2 shadow-xs">
                 <div className="flex items-center justify-between gap-2 border-b border-primary/10 pb-2">
@@ -296,7 +337,6 @@ export function StudySession({
                   {currentQ.word.meaning}
                 </p>
 
-                {/* 예문이 있고 단어가 포함되어 있다면 예문 속 빈칸 표시 */}
                 {currentQ.word.exampleSentence && currentQ.word.exampleSentence.toLowerCase().includes(currentQ.word.word.toLowerCase()) ? (
                   <div className="p-3 rounded-xl bg-card border text-sm sm:text-base font-medium leading-relaxed text-foreground/90 space-y-1">
                     <p className="text-[11px] text-muted-foreground font-semibold">📖 예문 속 빈칸</p>
@@ -313,7 +353,6 @@ export function StudySession({
                     )}
                   </div>
                 ) : (
-                  /* 예문이 없는 경우 마스킹된 철자 힌트 박스 표시 (예: w _ _ _ y) */
                   <div className="p-3 rounded-xl bg-card border flex items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground font-semibold">철자 힌트:</span>
                     <div className="font-mono text-lg sm:text-xl font-black text-primary tracking-widest bg-muted/60 px-3.5 py-1 rounded-lg border">
@@ -324,7 +363,7 @@ export function StudySession({
               </div>
             )}
 
-            {/* 3. 직접 타이핑 / 스펠링 입력 (typing) 전용 카드 */}
+            {/* 5. 🌟 타이핑 / 직접 입력 (typing) 전용 카드 */}
             {currentQ.type === 'typing' && (
               <div className="p-4 sm:p-5 rounded-2xl bg-muted/30 border space-y-2 mt-2">
                 <div className="flex items-center justify-between">
@@ -370,11 +409,12 @@ export function StudySession({
           )}
 
           {/* ──────────────────────────────────
-              답변 영역 (객관식 vs 주관식/빈칸)
+              답변 영역 (선택지 vs 직접 입력)
              ────────────────────────────────── */}
-          {currentQ.type === 'multiple_choice' && currentQ.options && (
+          {/* 선택지가 존재하는 모든 문제 (객관식, 문장 완성 등) */}
+          {hasOptions && (
             <div className="grid grid-cols-1 gap-2.5 pt-2">
-              {currentQ.options.map((opt, i) => {
+              {currentQ.options!.map((opt, i) => {
                 let btnStyle = 'border-border/80 hover:border-primary/50 hover:bg-primary/5 text-foreground';
 
                 if (isAnswered) {
@@ -396,9 +436,14 @@ export function StudySession({
                     key={i}
                     disabled={isAnswered}
                     onClick={() => handleOptionClick(opt)}
-                    className={`w-full p-3.5 rounded-xl border-2 text-left text-sm sm:text-base font-medium transition-all duration-150 flex items-center justify-between ${btnStyle}`}
+                    className={`w-full p-3.5 rounded-xl border-2 text-left text-sm sm:text-base font-medium transition-all duration-150 flex items-center justify-between shadow-2xs ${btnStyle}`}
                   >
-                    <span>{opt}</span>
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex items-center justify-center h-6 w-6 rounded-full bg-muted text-xs font-bold text-muted-foreground shrink-0">
+                        {i + 1}
+                      </span>
+                      <span>{opt}</span>
+                    </div>
                     {isAnswered && opt.trim().toLowerCase() === currentQ.correctAnswer.trim().toLowerCase() && (
                       <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
                     )}
@@ -411,7 +456,8 @@ export function StudySession({
             </div>
           )}
 
-          {(currentQ.type === 'fill_blank' || currentQ.type === 'typing') && (
+          {/* 선택지가 없는 직접 입력 문제 (빈칸 채우기, 타이핑) */}
+          {!hasOptions && (
             <form onSubmit={handleTypedSubmit} className="space-y-3 pt-2">
               <div className="flex gap-2">
                 <Input
