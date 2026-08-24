@@ -201,21 +201,47 @@ export async function addVocabularyAction(
     return { success: false, error: `"${input.word}"은(는) 이미 등록된 단어입니다.` };
   }
 
+  let finalMeaning = input.meaning.trim();
+  let finalPos = input.partOfSpeech || null;
+  let finalPron = input.pronunciation || null;
+  let finalEx = input.exampleSentence || null;
+  let finalExTrans = input.exampleTranslation || null;
+  let finalSyn = input.synonyms || null;
+  let finalAnt = input.antonyms || null;
+  let finalSource = input.source || '직접 등록';
+
+  // 뜻이나 정보가 없으면 자동 사전 검색 실행
+  if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
+    try {
+      const searchResult = await searchWordOnline(input.word.trim());
+      if (searchResult && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
+        finalMeaning = searchResult.meaning;
+        if (!finalPos && searchResult.partOfSpeech) finalPos = searchResult.partOfSpeech;
+        if (!finalPron && searchResult.pronunciation) finalPron = searchResult.pronunciation;
+        if (!finalEx && searchResult.exampleSentence) finalEx = searchResult.exampleSentence;
+        if (!finalExTrans && searchResult.exampleTranslation) finalExTrans = searchResult.exampleTranslation;
+        if (!finalSyn && searchResult.synonyms) finalSyn = searchResult.synonyms;
+        if (!finalAnt && searchResult.antonyms) finalAnt = searchResult.antonyms;
+        if (searchResult.source) finalSource = searchResult.source;
+      }
+    } catch {}
+  }
+
   const newItem: VocabularyWithItem = {
     id: `vocab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     word: input.word.trim(),
-    meaning: input.meaning.trim(),
-    partOfSpeech: input.partOfSpeech || null,
-    pronunciation: input.pronunciation || null,
+    meaning: finalMeaning || '의미 검색 필요',
+    partOfSpeech: finalPos,
+    pronunciation: finalPron,
     audioUrl: null,
-    exampleSentence: input.exampleSentence || null,
-    exampleTranslation: input.exampleTranslation || null,
-    synonyms: input.synonyms || null,
-    antonyms: input.antonyms || null,
+    exampleSentence: finalEx,
+    exampleTranslation: finalExTrans,
+    synonyms: finalSyn,
+    antonyms: finalAnt,
     frequency: 'high',
     difficulty: input.difficulty ?? 2,
     grade: input.grade ?? 10,
-    source: input.source || '직접 등록',
+    source: finalSource,
     learningItemId: `item-${Date.now()}`,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

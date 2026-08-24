@@ -103,15 +103,33 @@ export async function addPhraseAction(
   input: CreatePhraseInput
 ): Promise<ActionResult<PhraseWithItem>> {
   const all = getStoredPhrases();
+
+  let finalMeaning = input.meaning.trim();
+  let finalEx = input.exampleSentence || null;
+  let finalExTrans = input.exampleTranslation || null;
+  let finalSource = input.source || '직접 등록';
+
+  if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
+    try {
+      const searchResult = await searchWordOnline(input.phrase.trim());
+      if (searchResult && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
+        finalMeaning = searchResult.meaning;
+        if (!finalEx && searchResult.exampleSentence) finalEx = searchResult.exampleSentence;
+        if (!finalExTrans && searchResult.exampleTranslation) finalExTrans = searchResult.exampleTranslation;
+        if (searchResult.source) finalSource = searchResult.source;
+      }
+    } catch {}
+  }
+
   const newItem: PhraseWithItem = {
     id: `phrase-${Date.now()}`,
     phrase: input.phrase.trim(),
-    meaning: input.meaning.trim(),
-    exampleSentence: input.exampleSentence || null,
-    exampleTranslation: input.exampleTranslation || null,
+    meaning: finalMeaning || '의미 검색 필요',
+    exampleSentence: finalEx,
+    exampleTranslation: finalExTrans,
     difficulty: input.difficulty ?? 2,
     grade: input.grade ?? 10,
-    source: input.source || '직접 등록',
+    source: finalSource,
     learningItemId: `pitem-${Date.now()}`,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

@@ -95,7 +95,7 @@ export function VocabularyFormDialog({
       if (isManual) setError('검색할 영어 단어를 먼저 입력해주세요.');
       return;
     }
-    if (!isManual && clean === lastSearchedWord.current) {
+    if (!isManual && clean.toLowerCase() === lastSearchedWord.current.toLowerCase()) {
       return;
     }
 
@@ -132,11 +132,23 @@ export function VocabularyFormDialog({
     }
   };
 
+  // ⚡ 단어 입력 중 300ms 디바운스 실시간 자동 검색
+  useEffect(() => {
+    if (!open || mode !== 'create') return;
+    const clean = word.trim();
+    if (clean.length < 2) return;
+
+    const timer = setTimeout(() => {
+      executeSearch(clean, false);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [word, open, mode]);
+
   const handleManualSearch = () => {
     executeSearch(word, true);
   };
 
-  // 단어 입력 후 포커스 아웃 시 뜻이 비어있으면 자동 검색
   const handleWordBlur = () => {
     if (word.trim().length >= 2 && !meaning.trim()) {
       executeSearch(word, false);
@@ -147,28 +159,58 @@ export function VocabularyFormDialog({
     e.preventDefault();
     setError('');
 
-    if (!word.trim()) {
+    const cleanWord = word.trim();
+    if (!cleanWord) {
       setError('단어를 입력하세요.');
-      return;
-    }
-    if (!meaning.trim()) {
-      setError('뜻을 입력하세요.');
       return;
     }
 
     setIsSubmitting(true);
+
+    let finalMeaning = meaning.trim();
+    let finalPos = partOfSpeech.trim();
+    let finalPron = pronunciation.trim();
+    let finalEx = exampleSentence.trim();
+    let finalExTrans = exampleTranslation.trim();
+    let finalSyn = synonyms.trim();
+    let finalAnt = antonyms.trim();
+    let finalSource = source.trim();
+
+    // 만약 뜻이 아직 비어있다면 제출 직전 즉시 자동 검색 실행
+    if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
+      try {
+        const res = await searchWordOnlineAction(cleanWord);
+        if (res.success && res.data && res.data.meaning && res.data.meaning !== '의미 검색 필요') {
+          finalMeaning = res.data.meaning;
+          if (!finalPos && res.data.partOfSpeech) finalPos = res.data.partOfSpeech;
+          if (!finalPron && res.data.pronunciation) finalPron = res.data.pronunciation;
+          if (!finalEx && res.data.exampleSentence) finalEx = res.data.exampleSentence;
+          if (!finalExTrans && res.data.exampleTranslation) finalExTrans = res.data.exampleTranslation;
+          if (!finalSyn && res.data.synonyms) finalSyn = res.data.synonyms;
+          if (!finalAnt && res.data.antonyms) finalAnt = res.data.antonyms;
+          if (!finalSource && res.data.source) finalSource = res.data.source;
+        }
+      } catch {}
+    }
+
+    if (!finalMeaning) {
+      setError('뜻을 입력하세요.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       await onSubmit({
-        word: word.trim(),
-        meaning: meaning.trim(),
-        partOfSpeech: partOfSpeech.trim(),
-        pronunciation: pronunciation.trim(),
-        exampleSentence: exampleSentence.trim(),
-        exampleTranslation: exampleTranslation.trim(),
-        synonyms: synonyms.trim(),
-        antonyms: antonyms.trim(),
+        word: cleanWord,
+        meaning: finalMeaning,
+        partOfSpeech: finalPos,
+        pronunciation: finalPron,
+        exampleSentence: finalEx,
+        exampleTranslation: finalExTrans,
+        synonyms: finalSyn,
+        antonyms: finalAnt,
         difficulty,
-        source: source.trim(),
+        source: finalSource,
       });
 
       if (mode === 'create') {
@@ -222,7 +264,7 @@ export function VocabularyFormDialog({
             <div className="flex gap-2">
               <Input
                 id="form-word"
-                placeholder="예: significant, abandon"
+                placeholder="예: apple, hesitate, resilient"
                 value={word}
                 onChange={(e) => {
                   setWord(e.target.value);
@@ -254,7 +296,7 @@ export function VocabularyFormDialog({
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              단어 입력 후 <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">Enter</kbd> 또는 [자동 검색]을 누르면 뜻, 발음, 예문이 자동 완성됩니다.
+              단어를 입력하면 뜻, 발음, 예문이 <strong className="text-primary font-semibold">실시간 자동 완성</strong>됩니다.
             </p>
           </div>
 
@@ -265,7 +307,7 @@ export function VocabularyFormDialog({
             </Label>
             <Input
               id="form-meaning"
-              placeholder="예: 중요한, 상당한"
+              placeholder="예: 사과, 망설이다"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
             />
@@ -294,7 +336,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-pronunciation">발음</Label>
               <Input
                 id="form-pronunciation"
-                placeholder="[sɪɡˈnɪfɪkənt]"
+                placeholder="[ˈæpl]"
                 value={pronunciation}
                 onChange={(e) => setPronunciation(e.target.value)}
               />
@@ -306,7 +348,7 @@ export function VocabularyFormDialog({
             <Label htmlFor="form-example">예문</Label>
             <Textarea
               id="form-example"
-              placeholder="There has been a significant increase in sales."
+              placeholder="An apple a day keeps the doctor away."
               value={exampleSentence}
               onChange={(e) => setExampleSentence(e.target.value)}
               rows={2}
@@ -318,7 +360,7 @@ export function VocabularyFormDialog({
             <Label htmlFor="form-example-trans">예문 해석</Label>
             <Input
               id="form-example-trans"
-              placeholder="매출에 상당한 증가가 있었다."
+              placeholder="하루 사과 한 개는 의사를 멀리한다."
               value={exampleTranslation}
               onChange={(e) => setExampleTranslation(e.target.value)}
             />

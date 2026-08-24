@@ -115,6 +115,19 @@ export function PhraseFormDialog({
     }
   };
 
+  // ⚡ 숙어 입력 중 300ms 디바운스 실시간 자동 검색
+  useEffect(() => {
+    if (!open || mode !== 'create') return;
+    const clean = phrase.trim();
+    if (clean.length < 3) return;
+
+    const timer = setTimeout(() => {
+      executeSearch(clean, false);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [phrase, open, mode]);
+
   const handleManualSearch = () => {
     executeSearch(phrase, true);
   };
@@ -129,24 +142,45 @@ export function PhraseFormDialog({
     e.preventDefault();
     setError('');
 
-    if (!phrase.trim()) {
+    const cleanPhrase = phrase.trim();
+    if (!cleanPhrase) {
       setError('숙어를 입력하세요.');
-      return;
-    }
-    if (!meaning.trim()) {
-      setError('뜻을 입력하세요.');
       return;
     }
 
     setIsSubmitting(true);
+
+    let finalMeaning = meaning.trim();
+    let finalEx = exampleSentence.trim();
+    let finalExTrans = exampleTranslation.trim();
+    let finalSource = source.trim();
+
+    if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
+      try {
+        const res = await searchPhraseOnlineAction(cleanPhrase);
+        if (res.success && res.data && res.data.meaning && res.data.meaning !== '의미 검색 필요') {
+          finalMeaning = res.data.meaning;
+          if (!finalEx && res.data.exampleSentence) finalEx = res.data.exampleSentence;
+          if (!finalExTrans && res.data.exampleTranslation) finalExTrans = res.data.exampleTranslation;
+          if (!finalSource && res.data.source) finalSource = res.data.source;
+        }
+      } catch {}
+    }
+
+    if (!finalMeaning) {
+      setError('뜻을 입력하세요.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       await onSubmit({
-        phrase: phrase.trim(),
-        meaning: meaning.trim(),
-        exampleSentence: exampleSentence.trim(),
-        exampleTranslation: exampleTranslation.trim(),
+        phrase: cleanPhrase,
+        meaning: finalMeaning,
+        exampleSentence: finalEx,
+        exampleTranslation: finalExTrans,
         difficulty,
-        source: source.trim(),
+        source: finalSource,
       });
 
       if (mode === 'create') {
