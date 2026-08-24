@@ -3,7 +3,7 @@
 // ===========================
 // 설계서 섹션 28 기반 (OCR Pipeline)
 
-import { BUILTIN_DICTIONARY } from './dictionary';
+import { BUILTIN_DICTIONARY, lookupWordMeaning } from './dictionary';
 import { convertToKoreanPronunciation } from '@/features/vocabulary/services/koreanPronunciation';
 
 /** 너무 기초적인 불용어(Stopwords) */
@@ -46,21 +46,26 @@ export function getBaseFormCandidates(word: string): string[] {
     }
     forms.push(word.slice(0, -3) + 'e');
   }
-  if (word.endsWith('ly')) forms.push(word.slice(0, -2));
+  if (word.endsWith('ly')) {
+    forms.push(word.slice(0, -2));
+    if (word.endsWith('ily')) forms.push(word.slice(0, -3) + 'y');
+  }
   if (word.endsWith('ed')) {
     forms.push(word.slice(0, -2));
     forms.push(word.slice(0, -1));
+    if (word.endsWith('ied')) forms.push(word.slice(0, -3) + 'y');
     if (word.endsWith('ted') || word.endsWith('ned') || word.endsWith('ped') || word.endsWith('ded')) {
       forms.push(word.slice(0, -3));
     }
   }
+  if (word.endsWith('ies')) forms.push(word.slice(0, -3) + 'y');
   if (word.endsWith('es')) forms.push(word.slice(0, -2));
   if (word.endsWith('s') && !word.endsWith('ss')) forms.push(word.slice(0, -1));
   return Array.from(new Set(forms));
 }
 
 /**
- * OCR 원시 텍스트에서 학습 가치가 있는 영어 단어 후보들을 추출합니다.
+ * OCR 원시 텍스트에서 학습 가치가 있는 영어 단어 후보들을 추출합니다. (영한사전 뜻 자동 연동)
  */
 export function extractEnglishWords(rawText: string): ExtractedWordCandidate[] {
   if (!rawText || typeof rawText !== 'string') return [];
@@ -84,21 +89,30 @@ export function extractEnglishWords(rawText: string): ExtractedWordCandidate[] {
     if (!/^[a-z]+$/.test(word)) return;
     if (wordMap.has(word)) return; // 중복 방지
 
-    // 3. 내장 사전 매핑 (원형 후보군 탐색)
-    const baseCandidates = getBaseFormCandidates(word);
+    // 3. 내장 대용량 영한사전 매핑 (파생형/원형 탐색)
+    const dictInfo = lookupWordMeaning(word);
     let meaning = '';
     let partOfSpeech = 'n.';
     let pronunciation = convertToKoreanPronunciation('', word);
     let difficulty = 2;
 
-    for (const cand of baseCandidates) {
-      const dictInfo = BUILTIN_DICTIONARY[cand];
-      if (dictInfo) {
-        meaning = dictInfo.meaning;
-        partOfSpeech = dictInfo.pos || (word.includes(' ') ? 'phr.' : 'n.');
-        pronunciation = dictInfo.pron || convertToKoreanPronunciation('', word);
-        difficulty = dictInfo.diff || 2;
-        break;
+    if (dictInfo) {
+      meaning = dictInfo.meaning;
+      partOfSpeech = dictInfo.pos || (word.includes(' ') ? 'phr.' : 'n.');
+      pronunciation = dictInfo.pron || convertToKoreanPronunciation('', word);
+      difficulty = dictInfo.diff || 2;
+    } else {
+      // 2차 탐색: 원형 후보군 순회
+      const baseCandidates = getBaseFormCandidates(word);
+      for (const cand of baseCandidates) {
+        const cInfo = BUILTIN_DICTIONARY[cand];
+        if (cInfo) {
+          meaning = cInfo.meaning;
+          partOfSpeech = cInfo.pos || 'n.';
+          pronunciation = cInfo.pron || convertToKoreanPronunciation('', word);
+          difficulty = cInfo.diff || 2;
+          break;
+        }
       }
     }
 

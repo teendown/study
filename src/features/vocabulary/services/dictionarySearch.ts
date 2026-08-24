@@ -3,7 +3,7 @@
 // ===========================
 // 내장 사전(1순위 즉시 매칭) + 위키낱말사전(Wiktionary CORS 공식 API) + Free Dictionary API + 온라인 번역
 
-import { BUILTIN_DICTIONARY } from '@/lib/ocr/dictionary';
+import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { convertToKoreanPronunciation } from './koreanPronunciation';
 
 export interface WordSearchResult {
@@ -256,14 +256,14 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     throw new Error('검색할 단어를 입력해주세요.');
   }
 
-  // 1. 1순위: 내장 사전 즉시 확인 (0ms, 100% 안정성)
-  const builtin = BUILTIN_DICTIONARY[cleanWord];
+  // 1. 1순위: 내장 영한사전 고정밀 확인 (파생형/원형 포함 0ms 즉시 확인)
+  const builtin = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
   if (builtin) {
     return {
       word: cleanWord,
       meaning: builtin.meaning,
       partOfSpeech: normalizePartOfSpeech(builtin.pos, cleanWord),
-      pronunciation: builtin.pron || '',
+      pronunciation: builtin.pron || convertToKoreanPronunciation('', cleanWord),
       exampleSentence: builtin.ex || '',
       exampleTranslation: builtin.exTrans || '',
       synonyms: builtin.syn || '',

@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PassageItem } from '../types/passageTypes';
-import { BUILTIN_DICTIONARY } from '@/lib/ocr/dictionary';
+import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { extractEnglishWords } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 
@@ -145,10 +145,13 @@ export function PassageDetail({
     const unadded = extractedWords.filter((w) => !addedWords.has(w));
     if (unadded.length === 0) return;
 
-    const items = unadded.map((w) => ({
-      word: w,
-      meaning: BUILTIN_DICTIONARY[w.toLowerCase()]?.meaning || '사전 등록 필요',
-    }));
+    const items = unadded.map((w) => {
+      const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
+      return {
+        word: w,
+        meaning: dict?.meaning || '사전 등록 필요',
+      };
+    });
 
     if (onBatchAddWordsToVocab) {
       onBatchAddWordsToVocab(items);
@@ -441,8 +444,8 @@ export function PassageDetail({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
               {extractedWords.map((word) => {
-                const dict = BUILTIN_DICTIONARY[word.toLowerCase()];
-                const meaning = dict ? dict.meaning : '사전 매칭 준비 중';
+                const dict = lookupWordMeaning(word) || BUILTIN_DICTIONARY[word.toLowerCase()];
+                const meaning = dict ? dict.meaning : '사전 등록 필요';
                 const isAdded = addedWords.has(word);
 
                 return (
