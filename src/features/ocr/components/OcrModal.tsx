@@ -4,10 +4,10 @@ import { useState, useRef } from 'react';
 import {
   Camera,
   Upload,
-  Image as ImageIcon,
   Loader2,
   Sparkles,
-  CheckCircle2,
+  FileText,
+  List,
 } from 'lucide-react';
 import {
   Dialog,
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { recognizeAndExtractWords } from '../services/ocrService';
 import { OcrCandidateList } from './OcrCandidateList';
+import { OcrPassageReview } from './OcrPassageReview';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 import type { OcrStep } from '../types';
 
@@ -26,14 +27,22 @@ interface OcrModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaveWords: (words: ExtractedWordCandidate[]) => Promise<void>;
+  onSavePassage?: (passageData: { title: string; content: string; source: string }) => Promise<void>;
 }
 
-export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
+export function OcrModal({
+  open,
+  onOpenChange,
+  onSaveWords,
+  onSavePassage,
+}: OcrModalProps) {
   const [step, setStep] = useState<OcrStep>('upload');
+  const [activeView, setActiveView] = useState<'words' | 'passage'>('words');
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
   const [candidates, setCandidates] = useState<ExtractedWordCandidate[]>([]);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [passageText, setPassageText] = useState('');
+  const [sentences, setSentences] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,10 +51,12 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
   const handleOpenChange = (val: boolean) => {
     if (!val) {
       setStep('upload');
+      setActiveView('words');
       setProgress(0);
       setStatusText('');
       setCandidates([]);
-      setPreviewUrl(null);
+      setPassageText('');
+      setSentences([]);
       setError(null);
     }
     onOpenChange(val);
@@ -56,7 +67,6 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
     if (!file) return;
 
     setError(null);
-    setPreviewUrl(URL.createObjectURL(file));
     setStep('processing');
 
     try {
@@ -68,13 +78,15 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
         },
       });
 
-      if (result.candidates.length === 0) {
-        setError('이미지에서 영단어를 찾지 못했습니다. 글자가 선명한 이미지를 선택해주세요.');
+      if (!result.rawText || result.candidates.length === 0) {
+        setError('이미지에서 영문 텍스트를 찾지 못했습니다. 글자가 선명한 이미지를 선택해주세요.');
         setStep('upload');
         return;
       }
 
       setCandidates(result.candidates);
+      setPassageText(result.passageText);
+      setSentences(result.sentences);
       setStep('review');
     } catch (err) {
       console.error('OCR error:', err);
@@ -89,8 +101,16 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
   };
 
   // 선택 단어 일괄 저장
-  const handleSaveSelected = async (selected: ExtractedWordCandidate[]) => {
+  const handleSaveSelectedWords = async (selected: ExtractedWordCandidate[]) => {
     await onSaveWords(selected);
+    handleOpenChange(false);
+  };
+
+  // 본문 저장
+  const handleSavePassage = async (data: { title: string; content: string; source: string }) => {
+    if (onSavePassage) {
+      await onSavePassage(data);
+    }
     handleOpenChange(false);
   };
 
@@ -100,9 +120,40 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5 text-primary" />
-            {step === 'review'
-              ? `단어 검수 및 선택 (${candidates.length}개 발견)`
-              : '사진 / 이미지로 단어 추출 (OCR)'}
+            {step === 'review' ? (
+              <div className="flex items-center justify-between flex-1 pr-4">
+                <span>OCR 추출 결과</span>
+                {/* 단어 모드 / 본문 모드 전환 탭 */}
+                <div className="flex items-center rounded-lg bg-muted p-0.5 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('words')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
+                      activeView === 'words'
+                        ? 'bg-background text-primary shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    단어 ({candidates.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('passage')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
+                      activeView === 'passage'
+                        ? 'bg-background text-primary shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    본문 지문
+                  </button>
+                </div>
+              </div>
+            ) : (
+              '사진 / 교재 이미지 OCR 텍스트 인식'
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -135,18 +186,18 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
                 문제집 / 교재 사진을 업로드하세요
               </h4>
               <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-                스마트폰 카메라로 찍은 사진이나 스크린샷 이미지를 선택하면
-                영어 단어를 자동으로 추출합니다.
+                스마트폰으로 찍은 사진의 그림자를 자동 제거하고, 선명도를 극대화하여 
+                <strong> 단어 및 본문 전체</strong>를 고정밀 인식합니다.
               </p>
             </div>
 
-            {/* 안내 팁 */}
+            {/* 고정밀 개선 안내 팁 */}
             <div className="p-3.5 rounded-xl bg-muted/50 border border-border text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 촬영 팁
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 고정밀 OCR 전처리 적용됨
               </p>
-              <p>• 글자가 선명하고 수평에 가깝게 촬영하면 인식률이 높아집니다.</p>
-              <p>• 추출된 단어는 바로 저장되지 않고 원하는 단어만 골라서 등록할 수 있습니다.</p>
+              <p>• <strong>자동 대비 강화 &amp; 그림자 제거</strong>로 흐린 사진도 선명하게 판독합니다.</p>
+              <p>• <strong>단어 추출</strong>뿐만 아니라 <strong>지문 본문 통째 읽기/저장</strong>도 지원합니다.</p>
             </div>
           </div>
         )}
@@ -161,9 +212,9 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
             </div>
 
             <div className="space-y-1.5">
-              <h4 className="font-bold text-base">{statusText || '이미지 분석 중...'}</h4>
+              <h4 className="font-bold text-base">{statusText || '이미지 분석 및 보정 중...'}</h4>
               <p className="text-xs text-muted-foreground">
-                Tesseract.js OCR 엔진으로 글자를 추출하고 있습니다.
+                화질 개선, 그림자 제거, Tesseract 고정밀 분석을 수행하고 있습니다.
               </p>
             </div>
 
@@ -175,12 +226,21 @@ export function OcrModal({ open, onOpenChange, onSaveWords }: OcrModalProps) {
         )}
 
         {/* ────────────────────────────────────
-            3. 단어 검수 및 선택 단계
+            3. 결과 검수 단계 (단어 탭 vs 본문 탭)
            ──────────────────────────────────── */}
-        {step === 'review' && (
+        {step === 'review' && activeView === 'words' && (
           <OcrCandidateList
             initialCandidates={candidates}
-            onSaveSelected={handleSaveSelected}
+            onSaveSelected={handleSaveSelectedWords}
+            onCancel={() => setStep('upload')}
+          />
+        )}
+
+        {step === 'review' && activeView === 'passage' && (
+          <OcrPassageReview
+            initialPassageText={passageText}
+            sentences={sentences}
+            onSavePassage={handleSavePassage}
             onCancel={() => setStep('upload')}
           />
         )}
