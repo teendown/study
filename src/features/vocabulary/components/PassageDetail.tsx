@@ -13,12 +13,14 @@ import {
   Layers,
   FileText,
   Plus,
+  BookmarkPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PassageItem } from '../types/passageTypes';
 import { BUILTIN_DICTIONARY } from '@/lib/ocr/dictionary';
+import { extractEnglishPhrases } from '@/lib/ocr/phraseDictionary';
 
 interface PassageDetailProps {
   passage: PassageItem;
@@ -26,6 +28,7 @@ interface PassageDetailProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onAddWordToVocab?: (word: string, meaning: string) => void;
+  onAddPhraseToVocab?: (phrase: string, meaning: string) => void;
 }
 
 export function PassageDetail({
@@ -34,11 +37,13 @@ export function PassageDetail({
   onEdit,
   onDelete,
   onAddWordToVocab,
+  onAddPhraseToVocab,
 }: PassageDetailProps) {
   const [viewMode, setViewMode] = useState<'full' | 'sentences'>('full');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [addedWords, setAddedWords] = useState<Set<string>>(new Set());
+  const [addedPhrases, setAddedPhrases] = useState<Set<string>>(new Set());
 
   const handleCopy = () => {
     navigator.clipboard.writeText(passage.content);
@@ -71,8 +76,21 @@ export function PassageDetail({
     setAddedWords((prev) => new Set(prev).add(word));
   };
 
+  const handleAddPhrase = (phrase: string, meaning: string) => {
+    onAddPhraseToVocab?.(phrase, meaning);
+    setAddedPhrases((prev) => new Set(prev).add(phrase));
+  };
+
   const wordCount = passage.content.trim().split(/\s+/).filter(Boolean).length;
   const sentenceList = passage.sentences || [];
+
+  // 숙어 목록 (지문 데이터에 없으면 실시간 추출)
+  const phrases = passage.phraseList && passage.phraseList.length > 0
+    ? passage.phraseList
+    : extractEnglishPhrases(passage.content);
+
+  // 단어 목록 (전수 표시)
+  const vocabList = passage.vocabularyList || [];
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
@@ -122,7 +140,7 @@ export function PassageDetail({
             {passage.source}
           </span>
           <span className="text-xs text-muted-foreground ml-auto">
-            {wordCount}단어 · {sentenceList.length}문장
+            {wordCount}단어 · {sentenceList.length}문장 · {phrases.length}개 숙어
           </span>
         </div>
         <h2 className="text-xl font-bold text-foreground pt-1">{passage.title}</h2>
@@ -218,22 +236,90 @@ export function PassageDetail({
         </div>
       )}
 
-      {/* 지문 핵심 어휘 (단어장에 추가 지원) */}
-      {passage.vocabularyList && passage.vocabularyList.length > 0 && (
-        <Card className="bg-card/90 backdrop-blur-xs border-border mt-6">
+      {/* ────────────────────────────────────
+          1. 지문 핵심 숙어 및 연어 (Phrases & Collocations) ✨
+         ──────────────────────────────────── */}
+      {phrases.length > 0 && (
+        <Card className="bg-card/90 backdrop-blur-xs border-indigo-500/30 shadow-xs mt-6">
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-1">
               <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                지문 핵심 어휘 ({passage.vocabularyList.length}개)
+                <BookmarkPlus className="h-4 w-4 text-indigo-500" />
+                지문 핵심 숙어 및 연어 ({phrases.length}개)
               </h4>
-              <span className="text-[11px] text-muted-foreground">버튼을 눌러 단어장에 바로 등록할 수 있습니다.</span>
+              <span className="text-[11px] text-muted-foreground">
+                지문에서 자동 판독된 필수 숙어를 숙어장에 저장할 수 있습니다.
+              </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {passage.vocabularyList.map((word) => {
+              {phrases.map((item) => {
+                const isAdded = addedPhrases.has(item.phrase);
+
+                return (
+                  <div
+                    key={item.phrase}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-indigo-500/20 bg-indigo-50/40 dark:bg-indigo-950/20 text-xs"
+                  >
+                    <div className="space-y-0.5 min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-foreground">{item.phrase}</span>
+                        {item.matchedText && item.matchedText.toLowerCase() !== item.phrase.toLowerCase() && (
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-1 rounded">
+                            본문: {item.matchedText}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground truncate">{item.meaning}</p>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant={isAdded ? 'secondary' : 'default'}
+                      className="h-6 px-2 text-[10px] shrink-0 gap-1 font-semibold"
+                      disabled={isAdded}
+                      onClick={() => handleAddPhrase(item.phrase, item.meaning)}
+                    >
+                      {isAdded ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-500" />
+                          등록됨
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-3 w-3" />
+                          숙어장 추가
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ────────────────────────────────────
+          2. 지문 핵심 어휘 (단어장에 추가 지원 - 무제한 전수 표시)
+         ──────────────────────────────────── */}
+      {vocabList.length > 0 && (
+        <Card className="bg-card/90 backdrop-blur-xs border-border mt-4">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                지문 핵심 어휘 (총 {vocabList.length}개 전수 판독)
+              </h4>
+              <span className="text-[11px] text-muted-foreground">
+                단어 유효성 및 원형 분석을 거친 전체 어휘 목록입니다.
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+              {vocabList.map((word) => {
                 const dict = BUILTIN_DICTIONARY[word.toLowerCase()];
-                const meaning = dict ? dict.meaning : '사전 등록 필요';
+                const meaning = dict ? dict.meaning : '사전 매칭 준비 중';
                 const isAdded = addedWords.has(word);
 
                 return (

@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpen, Copy, Check, Volume2, Sparkles, FileText, ArrowRight } from 'lucide-react';
+import { BookOpen, Copy, Check, Volume2, Sparkles, FileText, BookmarkPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { extractEnglishPhrases } from '@/lib/ocr/phraseDictionary';
 
 interface OcrPassageReviewProps {
   initialPassageText: string;
@@ -62,6 +63,7 @@ export function OcrPassageReview({
   };
 
   const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
+  const detectedPhrases = extractEnglishPhrases(content);
 
   return (
     <div className="space-y-4 max-h-[75vh] flex flex-col">
@@ -72,7 +74,7 @@ export function OcrPassageReview({
             <FileText className="h-4 w-4" /> 완성형 본문
           </span>
           <span className="text-xs text-muted-foreground">
-            (총 <strong className="text-foreground">{wordCount}</strong>단어, <strong className="text-foreground">{sentences.length}</strong>개 문장)
+            (총 <strong className="text-foreground">{wordCount}</strong>단어, <strong className="text-foreground">{sentences.length}</strong>개 문장, <strong className="text-indigo-600 dark:text-indigo-400">{detectedPhrases.length}</strong>개 숙어 판독)
           </span>
         </div>
 
@@ -144,6 +146,27 @@ export function OcrPassageReview({
             placeholder="인식된 영어 본문이 이곳에 표시됩니다..."
           />
         </div>
+
+        {/* 자동 판독된 숙어 미리보기 */}
+        {detectedPhrases.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <Label className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+              <BookmarkPlus className="h-3.5 w-3.5" /> 자동 판독된 필수 숙어 ({detectedPhrases.length}개)
+            </Label>
+            <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-indigo-500/20 bg-indigo-50/40 dark:bg-indigo-950/20 text-xs">
+              {detectedPhrases.map((p) => (
+                <span
+                  key={p.phrase}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-background border border-border text-[11px]"
+                  title={p.meaning}
+                >
+                  <strong className="text-foreground">{p.phrase}</strong>
+                  <span className="text-muted-foreground">({p.meaning})</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 문장별 분리 뷰 (학습용) */}
         {sentences.length > 0 && (

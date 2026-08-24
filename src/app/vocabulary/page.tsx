@@ -390,6 +390,21 @@ export default function VocabularyPage() {
     } catch {}
   };
 
+  // 지문에서 숙어 바로 숙어장에 추가
+  const handleAddPhraseFromPassage = async (phrase: string, meaning: string) => {
+    try {
+      await addPhraseAction({
+        phrase,
+        meaning,
+        exampleSentence: '',
+        exampleTranslation: '',
+        difficulty: 2,
+        source: selectedPassage ? `${selectedPassage.title} 숙어` : '지문 추출 숙어',
+      }, true);
+      await loadPhrases();
+    } catch {}
+  };
+
   return (
     <div className="space-y-6">
       {/* ────────────────────────────────────
@@ -598,6 +613,7 @@ export default function VocabularyPage() {
               }}
               onDelete={() => handlePassageDelete(selectedPassage.id)}
               onAddWordToVocab={handleAddWordFromPassage}
+              onAddPhraseToVocab={handleAddPhraseFromPassage}
             />
           ) : (
             <PassageList

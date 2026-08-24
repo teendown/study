@@ -2,9 +2,16 @@
 // Reading Passage Actions & Services (Turso Cloud DB & Local Storage Hybrid)
 // ===========================
 
-import type { PassageItem, PassageListResult, CreatePassageInput, UpdatePassageInput } from '../types/passageTypes';
+import type {
+  PassageItem,
+  PassageListResult,
+  CreatePassageInput,
+  UpdatePassageInput,
+  ExtractedPhraseItem,
+} from '../types/passageTypes';
 import { splitPassageIntoSentences } from '@/lib/ocr/textCleaner';
 import { extractEnglishWords } from '@/lib/ocr/tokenizer';
+import { extractEnglishPhrases } from '@/lib/ocr/phraseDictionary';
 import { getTursoClient } from './tursoVocabService';
 
 const STORAGE_KEY_PASSAGES = 'study_quest_passages_v1';
@@ -24,7 +31,17 @@ const INITIAL_PASSAGES: PassageItem[] = [
       'What you repeatedly do ultimately forms the person you are, the things you believe, and the personality that you portray.',
       'By changing your daily habits, you can transform your entire life.',
     ],
-    vocabularyList: ['habit', 'decision', 'perform', 'researcher', 'behavior', 'essentially', 'ultimately', 'transform'],
+    vocabularyList: [
+      'habit', 'decision', 'perform', 'researcher', 'behavior',
+      'essentially', 'ultimately', 'transform', 'repeatedly', 'portray',
+      'percent', 'personality', 'believe', 'action',
+    ],
+    phraseList: [
+      { phrase: 'every day', matchedText: 'every day', meaning: '매일, 날마다', difficulty: 1 },
+      { phrase: 'according to', matchedText: 'According to', meaning: '~에 따르면, ~에 의하면', difficulty: 1 },
+      { phrase: 'account for', matchedText: 'account for', meaning: '~을 설명하다, (비율을) 차지하다', difficulty: 2 },
+      { phrase: 'in shape', matchedText: 'in shape', meaning: '건강한, 몸 상태가 좋은', difficulty: 2 },
+    ],
     difficulty: 2,
     grade: 10,
     source: '고1 영어 모의고사',
@@ -44,7 +61,23 @@ const INITIAL_PASSAGES: PassageItem[] = [
       'Transitioning to renewable energy sources, such as solar and wind power, can drastically reduce greenhouse gas emissions.',
       'Every small effort to conserve energy in our daily lives contributes to a sustainable future.',
     ],
-    vocabularyList: ['climate', 'pressing', 'challenge', 'significantly', 'fossil', 'biodiversity', 'renewable', 'conserve', 'sustainable'],
+    vocabularyList: [
+      'climate', 'pressing', 'challenge', 'temperature', 'significantly',
+      'activity', 'especially', 'fossil', 'warming', 'trend',
+      'extreme', 'weather', 'biodiversity', 'immediate', 'collective',
+      'transition', 'renewable', 'energy', 'source', 'drastically',
+      'reduce', 'greenhouse', 'emission', 'effort', 'conserve', 'sustainable',
+    ],
+    phraseList: [
+      { phrase: 'climate change', matchedText: 'Climate change', meaning: '기후 변화', difficulty: 1 },
+      { phrase: 'due to', matchedText: 'due to', meaning: '~로 인하여, ~때문에', difficulty: 1 },
+      { phrase: 'fossil fuel', matchedText: 'fossil fuels', meaning: '화석 연료', difficulty: 1 },
+      { phrase: 'take action', matchedText: 'take immediate collective action', meaning: '조치를 취하다, 행동에 나서다', difficulty: 2 },
+      { phrase: 'such as', matchedText: 'such as', meaning: '~와 같은', difficulty: 1 },
+      { phrase: 'greenhouse gas', matchedText: 'greenhouse gas', meaning: '온실가스', difficulty: 2 },
+      { phrase: 'daily life', matchedText: 'daily lives', meaning: '일상 생활', difficulty: 1 },
+      { phrase: 'contribute to', matchedText: 'contributes to', meaning: '~에 기여하다, 원인이 되다', difficulty: 2 },
+    ],
     difficulty: 3,
     grade: 10,
     source: '고1 수능특강 영어',
@@ -61,7 +94,17 @@ export function getStoredPassages(): PassageItem[] {
       localStorage.setItem(STORAGE_KEY_PASSAGES, JSON.stringify(INITIAL_PASSAGES));
       return INITIAL_PASSAGES;
     }
-    return JSON.parse(raw);
+    const parsed: PassageItem[] = JSON.parse(raw);
+    // phraseList 누락된 기존 저장 데이터 자동 보정
+    return parsed.map((item) => {
+      if (!item.phraseList || item.phraseList.length === 0) {
+        return {
+          ...item,
+          phraseList: extractEnglishPhrases(item.content),
+        };
+      }
+      return item;
+    });
   } catch {
     return INITIAL_PASSAGES;
   }
@@ -92,7 +135,12 @@ export async function fetchAllPassagesFromTurso(): Promise<PassageItem[] | null>
     `);
 
     return res.rows.map((row) => {
-      let meta: { translation?: string; sentences?: string[]; vocabularyList?: string[] } = {};
+      let meta: {
+        translation?: string;
+        sentences?: string[];
+        vocabularyList?: string[];
+        phraseList?: ExtractedPhraseItem[];
+      } = {};
       try {
         if (row.metadata) {
           meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata as typeof meta);
@@ -101,7 +149,14 @@ export async function fetchAllPassagesFromTurso(): Promise<PassageItem[] | null>
 
       const content = String(row.content || '');
       const sentences = meta.sentences && meta.sentences.length > 0 ? meta.sentences : splitPassageIntoSentences(content);
-      const vocabularyList = meta.vocabularyList || extractEnglishWords(content).map((w) => w.word).slice(0, 10);
+      // 단어 개수 제한 없이 모든 단어 추출
+      const vocabularyList = meta.vocabularyList && meta.vocabularyList.length > 0
+        ? meta.vocabularyList
+        : extractEnglishWords(content).map((w) => w.word);
+      // 숙어/연어 자동 추출
+      const phraseList = meta.phraseList && meta.phraseList.length > 0
+        ? meta.phraseList
+        : extractEnglishPhrases(content);
 
       return {
         id: String(row.id),
@@ -110,6 +165,7 @@ export async function fetchAllPassagesFromTurso(): Promise<PassageItem[] | null>
         translation: meta.translation || null,
         sentences,
         vocabularyList,
+        phraseList,
         difficulty: typeof row.difficulty === 'number' ? row.difficulty : 2,
         grade: typeof row.grade === 'number' ? row.grade : 10,
         source: row.source ? String(row.source) : '교재 지문',
@@ -133,6 +189,7 @@ export async function addPassageToTurso(item: PassageItem): Promise<boolean> {
       translation: item.translation,
       sentences: item.sentences,
       vocabularyList: item.vocabularyList,
+      phraseList: item.phraseList,
     });
 
     await client.execute({
@@ -216,7 +273,7 @@ export async function getPassagesAction(
 }
 
 /**
- * 새 지문 등록
+ * 새 지문 등록 (단어 및 숙어 전수 자동 추출)
  */
 export async function addPassageAction(
   input: CreatePassageInput
@@ -224,7 +281,10 @@ export async function addPassageAction(
   const all = getStoredPassages();
   const cleanContent = input.content.trim();
   const sentences = splitPassageIntoSentences(cleanContent);
-  const vocabularyList = extractEnglishWords(cleanContent).map((w) => w.word).slice(0, 12);
+  // 단어 개수 제한 없이 모든 단어 추출
+  const vocabularyList = extractEnglishWords(cleanContent).map((w) => w.word);
+  // 숙어/연어 자동 추출
+  const phraseList = extractEnglishPhrases(cleanContent);
 
   const newItem: PassageItem = {
     id: `passage-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -233,6 +293,7 @@ export async function addPassageAction(
     translation: input.translation?.trim() || null,
     sentences,
     vocabularyList,
+    phraseList,
     difficulty: input.difficulty ?? 2,
     grade: input.grade ?? 10,
     source: input.source?.trim() || '교재 지문',
@@ -250,7 +311,7 @@ export async function addPassageAction(
 }
 
 /**
- * 지문 수정
+ * 지문 수정 (단어 및 숙어 전수 자동 재추출)
  */
 export async function updatePassageAction(
   id: string,
@@ -263,7 +324,8 @@ export async function updatePassageAction(
   const current = all[idx];
   const newContent = input.content !== undefined ? input.content.trim() : current.content;
   const sentences = input.content !== undefined ? splitPassageIntoSentences(newContent) : current.sentences;
-  const vocabularyList = input.content !== undefined ? extractEnglishWords(newContent).map((w) => w.word).slice(0, 12) : current.vocabularyList;
+  const vocabularyList = input.content !== undefined ? extractEnglishWords(newContent).map((w) => w.word) : current.vocabularyList;
+  const phraseList = input.content !== undefined ? extractEnglishPhrases(newContent) : current.phraseList;
 
   const updated: PassageItem = {
     ...current,
@@ -272,6 +334,7 @@ export async function updatePassageAction(
     translation: input.translation !== undefined ? input.translation?.trim() || null : current.translation,
     sentences,
     vocabularyList,
+    phraseList,
     difficulty: input.difficulty ?? current.difficulty,
     grade: input.grade ?? current.grade,
     source: input.source !== undefined ? input.source.trim() : current.source,

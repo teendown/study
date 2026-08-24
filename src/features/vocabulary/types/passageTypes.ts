@@ -2,6 +2,13 @@
 // Reading Passage Types (영어 본문/독해 지문 타입)
 // ===========================
 
+export interface ExtractedPhraseItem {
+  phrase: string;
+  matchedText?: string;
+  meaning: string;
+  difficulty?: number;
+}
+
 export interface PassageItem {
   id: string;
   title: string;
@@ -9,6 +16,7 @@ export interface PassageItem {
   translation?: string | null;
   sentences: string[];
   vocabularyList?: string[];
+  phraseList?: ExtractedPhraseItem[];
   difficulty: number;
   grade?: number;
   source: string;
