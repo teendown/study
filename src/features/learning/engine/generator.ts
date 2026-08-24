@@ -182,7 +182,7 @@ export function generateQuestions(
         id: `q-${idx}-${Date.now()}`,
         learningItemId: vocab.learningItemId,
         type: 'fill_blank',
-        questionText: `빈칸에 알맞은 단어의 완전한 철자를 입력하세요.`,
+        questionText: `"${vocab.meaning}" - 빈칸에 알맞은 단어의 완전한 철자를 입력하세요.`,
         correctAnswer: vocab.word.toLowerCase(),
         hint: `힌트: ${masked} (${vocab.meaning})`,
         explanation: `${vocab.word} - ${vocab.meaning}`,
