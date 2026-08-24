@@ -1,56 +1,89 @@
 // ===========================
-// Phrase Local Storage Services
+// Phrase Actions & Services (Turso Cloud DB & Local Storage Hybrid)
 // ===========================
 
 import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
 import type { CreatePhraseInput, UpdatePhraseInput, SearchPhraseInput } from '../schemas/phraseSchemas';
 import { searchWordOnline, type WordSearchResult } from './dictionarySearch';
+import {
+  fetchAllPhrasesFromTurso,
+  addPhraseToTurso,
+  updatePhraseInTurso,
+  deletePhraseFromTurso,
+  batchDeletePhrasesFromTurso,
+} from './tursoVocabService';
 
 const STORAGE_KEY_PHRASE = 'study_quest_phrases_v1';
 
 const INITIAL_PHRASES: PhraseWithItem[] = [
   {
     id: 'phrase-1',
-    phrase: 'look forward to',
-    meaning: '~를 고대하다, 기대하다',
-    exampleSentence: 'I look forward to seeing you soon.',
-    exampleTranslation: '곧 당신을 만나기를 고대합니다.',
-    difficulty: 2,
+    phrase: 'take care of',
+    meaning: '~을 돌보다, 처리하다',
+    exampleSentence: 'Please take care of my dog while I am away.',
+    exampleTranslation: '내가 없는 동안 내 개를 돌봐줘.',
+    difficulty: 1,
     grade: 10,
-    source: '고1 필수 숙어',
-    learningItemId: 'p-item-1',
+    source: '기본 숙어',
+    learningItemId: 'pitem-1',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
     id: 'phrase-2',
-    phrase: 'take part in',
-    meaning: '~에 참여하다, 참가하다',
-    exampleSentence: 'Many students took part in the contest.',
-    exampleTranslation: '많은 학생들이 그 대회에 참가했다.',
-    difficulty: 1,
+    phrase: 'look forward to',
+    meaning: '~을 고대하다, 기대하다',
+    exampleSentence: 'I look forward to meeting you soon.',
+    exampleTranslation: '곧 당신을 만나기를 기대합니다.',
+    difficulty: 2,
     grade: 10,
-    source: '고1 필수 숙어',
-    learningItemId: 'p-item-2',
+    source: '기본 숙어',
+    learningItemId: 'pitem-2',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
   {
     id: 'phrase-3',
-    phrase: 'carry out',
-    meaning: '수행하다, 실행하다',
-    exampleSentence: 'They carried out the scientific experiment.',
-    exampleTranslation: '그들은 과학 실험을 수행했다.',
-    difficulty: 3,
+    phrase: 'run out of',
+    meaning: '~이 바닥나다, 다 떨어지다',
+    exampleSentence: 'We ran out of milk this morning.',
+    exampleTranslation: '오늘 아침에 우유가 다 떨어졌다.',
+    difficulty: 2,
     grade: 10,
-    source: '고1 교과서 숙어',
-    learningItemId: 'p-item-3',
+    source: '기본 숙어',
+    learningItemId: 'pitem-3',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'phrase-4',
+    phrase: 'give up',
+    meaning: '포기하다',
+    exampleSentence: 'Never give up on your dreams.',
+    exampleTranslation: '당신의 꿈을 절대 포기하지 마세요.',
+    difficulty: 1,
+    grade: 10,
+    source: '기본 숙어',
+    learningItemId: 'pitem-4',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'phrase-5',
+    phrase: 'put off',
+    meaning: '연기하다, 미루다',
+    exampleSentence: 'Don’t put off what you can do today.',
+    exampleTranslation: '오늘 할 수 있는 일을 미루지 마라.',
+    difficulty: 2,
+    grade: 10,
+    source: '기본 숙어',
+    learningItemId: 'pitem-5',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
 ];
 
-function getStoredPhrases(): PhraseWithItem[] {
+export function getStoredPhrases(): PhraseWithItem[] {
   if (typeof window === 'undefined') return INITIAL_PHRASES;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_PHRASE);
@@ -64,7 +97,7 @@ function getStoredPhrases(): PhraseWithItem[] {
   }
 }
 
-function saveStoredPhrases(items: PhraseWithItem[]) {
+export function saveStoredPhrases(items: PhraseWithItem[]) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY_PHRASE, JSON.stringify(items));
@@ -75,10 +108,28 @@ type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+/**
+ * 숙어 목록 조회 (Turso Cloud DB 우선 조회 + 로컬 캐시 동기화)
+ */
 export async function getPhrasesAction(
   params: Partial<SearchPhraseInput> = {}
 ): Promise<ActionResult<PhraseListResult>> {
-  const all = getStoredPhrases();
+  let all = getStoredPhrases();
+
+  try {
+    const tursoData = await fetchAllPhrasesFromTurso();
+    if (tursoData && tursoData.length > 0) {
+      all = tursoData;
+      saveStoredPhrases(all);
+    } else if (tursoData && tursoData.length === 0 && all.length > 0) {
+      for (const item of all) {
+        addPhraseToTurso(item).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn('Using local storage fallback for phrases:', err);
+  }
+
   const query = (params.query || '').toLowerCase().trim();
   const filtered = all.filter(
     (p) =>
@@ -99,6 +150,9 @@ export async function getPhrasesAction(
   };
 }
 
+/**
+ * 숙어 등록
+ */
 export async function addPhraseAction(
   input: CreatePhraseInput
 ): Promise<ActionResult<PhraseWithItem>> {
@@ -137,9 +191,18 @@ export async function addPhraseAction(
 
   all.unshift(newItem);
   saveStoredPhrases(all);
+
+  // Turso Cloud DB 동기화
+  addPhraseToTurso(newItem).catch((err) => {
+    console.warn('Background Turso sync failed for addPhrase:', err);
+  });
+
   return { success: true, data: newItem };
 }
 
+/**
+ * 숙어 수정
+ */
 export async function updatePhraseAction(
   id: string,
   input: UpdatePhraseInput
@@ -154,16 +217,37 @@ export async function updatePhraseAction(
     updatedAt: new Date().toISOString(),
   };
   saveStoredPhrases(all);
+
+  // Turso Cloud DB 동기화
+  updatePhraseInTurso(id, input).catch((err) => {
+    console.warn('Background Turso sync failed for updatePhrase:', err);
+  });
+
   return { success: true, data: undefined };
 }
 
+/**
+ * 숙어 삭제
+ */
 export async function deletePhraseAction(id: string): Promise<ActionResult> {
   const all = getStoredPhrases();
   const filtered = all.filter((p) => p.id !== id);
+  if (filtered.length === all.length) {
+    return { success: false, error: '삭제할 숙어를 찾을 수 없습니다.' };
+  }
   saveStoredPhrases(filtered);
+
+  // Turso Cloud DB 동기화
+  deletePhraseFromTurso(id).catch((err) => {
+    console.warn('Background Turso sync failed for deletePhrase:', err);
+  });
+
   return { success: true, data: undefined };
 }
 
+/**
+ * 숙어 일괄 삭제
+ */
 export async function batchDeletePhrasesAction(
   ids: string[]
 ): Promise<ActionResult<{ deletedCount: number }>> {
@@ -172,9 +256,32 @@ export async function batchDeletePhrasesAction(
   const filtered = all.filter((p) => !idSet.has(p.id));
   const deletedCount = all.length - filtered.length;
   saveStoredPhrases(filtered);
+
+  // Turso Cloud DB 동기화
+  batchDeletePhrasesFromTurso(ids).catch((err) => {
+    console.warn('Background Turso sync failed for batchDeletePhrases:', err);
+  });
+
   return { success: true, data: { deletedCount } };
 }
 
+/**
+ * 숙어 온라인 자동 검색
+ */
+export async function searchPhraseOnlineAction(
+  phrase: string
+): Promise<ActionResult<WordSearchResult>> {
+  try {
+    const result = await searchWordOnline(phrase);
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: '숙어 검색에 실패했습니다.' };
+  }
+}
+
+/**
+ * 저장된 숙어 중 뜻이 누락된 항목 일괄 자동 채우기
+ */
 export async function autoFillMissingPhrasesAction(): Promise<
   ActionResult<{ updatedCount: number; totalChecked: number }>
 > {
@@ -183,33 +290,30 @@ export async function autoFillMissingPhrasesAction(): Promise<
 
   for (let i = 0; i < all.length; i++) {
     const item = all[i];
-    const isMeaningMissing =
+    const isMissing =
       !item.meaning ||
       item.meaning.trim() === '' ||
       item.meaning === '의미 미입력' ||
       item.meaning === '의미 검색 필요' ||
       item.meaning === '뜻 미입력';
 
-    const isExampleMissing = !item.exampleSentence;
-
-    if (isMeaningMissing || isExampleMissing) {
+    if (isMissing || !item.exampleSentence) {
       try {
-        const searchResult = await searchWordOnline(item.phrase);
-        if (searchResult) {
-          let changed = false;
-          if (isMeaningMissing && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
-            item.meaning = searchResult.meaning;
-            changed = true;
+        const searchRes = await searchWordOnline(item.phrase);
+        if (searchRes && searchRes.meaning && searchRes.meaning !== '의미 검색 필요') {
+          item.meaning = searchRes.meaning;
+          if (!item.exampleSentence && searchRes.exampleSentence) {
+            item.exampleSentence = searchRes.exampleSentence;
+            item.exampleTranslation = searchRes.exampleTranslation || item.exampleTranslation;
           }
-          if (!item.exampleSentence && searchResult.exampleSentence) {
-            item.exampleSentence = searchResult.exampleSentence;
-            item.exampleTranslation = searchResult.exampleTranslation || item.exampleTranslation;
-            changed = true;
-          }
-          if (changed) {
-            item.updatedAt = new Date().toISOString();
-            updatedCount++;
-          }
+          item.updatedAt = new Date().toISOString();
+          updatedCount++;
+
+          updatePhraseInTurso(item.id, {
+            meaning: item.meaning,
+            exampleSentence: item.exampleSentence ?? undefined,
+            exampleTranslation: item.exampleTranslation ?? undefined,
+          }).catch(() => {});
         }
       } catch {}
     }
@@ -221,18 +325,3 @@ export async function autoFillMissingPhrasesAction(): Promise<
 
   return { success: true, data: { updatedCount, totalChecked: all.length } };
 }
-
-export async function searchPhraseOnlineAction(
-  phrase: string
-): Promise<ActionResult<WordSearchResult>> {
-  try {
-    const result = await searchWordOnline(phrase);
-    return { success: true, data: result };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : '숙어 검색에 실패했습니다.';
-    return { success: false, error: message };
-  }
-}
-
-
-

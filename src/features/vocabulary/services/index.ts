@@ -1,12 +1,19 @@
 // ===========================
-// Local Storage Client Repository & Services
+// Local Storage & Turso Cloud Database Hybrid Repository & Services
 // ===========================
-// GitHub Pages 정적 호스팅 완벽 호환을 위한 브라우저 로컬 저장소 매니저
+// PC & 모바일 모든 기기 간 실시간 데이터 동기화 (Turso Cloud DB + 오프라인 로컬 캐시)
 
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
 import type { CreateVocabularyInput, UpdateVocabularyInput, SearchVocabularyInput } from '../schemas';
 import type { WordSearchResult } from './dictionarySearch';
 import { searchWordOnline } from './dictionarySearch';
+import {
+  fetchAllVocabulariesFromTurso,
+  addVocabularyToTurso,
+  updateVocabularyInTurso,
+  deleteVocabularyFromTurso,
+  batchDeleteVocabulariesFromTurso,
+} from './tursoVocabService';
 
 const STORAGE_KEY_VOCAB = 'study_quest_vocabularies_v1';
 
@@ -16,7 +23,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
     word: 'abandon',
     meaning: '포기하다, 버리다',
     partOfSpeech: 'v.',
-    pronunciation: '[əˈbændən]',
+    pronunciation: '[어밴던]',
     audioUrl: null,
     exampleSentence: 'He decided to abandon the risky project.',
     exampleTranslation: '그는 위험한 프로젝트를 포기하기로 결정했다.',
@@ -35,7 +42,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
     word: 'significant',
     meaning: '중요한, 의미심장한, 상당한',
     partOfSpeech: 'adj.',
-    pronunciation: '[sɪɡˈnɪfɪkənt]',
+    pronunciation: '[시그니피컨트]',
     audioUrl: null,
     exampleSentence: 'There has been a significant increase in sales.',
     exampleTranslation: '매출에 상당한 증가가 있었다.',
@@ -54,7 +61,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
     word: 'contribute',
     meaning: '기여하다, 공헌하다',
     partOfSpeech: 'v.',
-    pronunciation: '[kənˈtrɪbjuːt]',
+    pronunciation: '[컨트리뷰트]',
     audioUrl: null,
     exampleSentence: 'Hard work contributed to success.',
     exampleTranslation: '노력이 성공에 기여했다.',
@@ -73,7 +80,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
     word: 'maintain',
     meaning: '유지하다, 지속하다',
     partOfSpeech: 'v.',
-    pronunciation: '[meɪnˈteɪn]',
+    pronunciation: '[메인테인]',
     audioUrl: null,
     exampleSentence: 'Maintain a good habit.',
     exampleTranslation: '좋은 습관을 유지하다.',
@@ -92,7 +99,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
     word: 'environment',
     meaning: '환경, 자연',
     partOfSpeech: 'n.',
-    pronunciation: '[ɪnˈvaɪrənmənt]',
+    pronunciation: '[인바이런먼트]',
     audioUrl: null,
     exampleSentence: 'Protect our environment.',
     exampleTranslation: '우리의 환경을 보호하자.',
@@ -108,7 +115,7 @@ const INITIAL_VOCABULARIES: VocabularyWithItem[] = [
   },
 ];
 
-function getStoredVocabs(): VocabularyWithItem[] {
+export function getStoredVocabs(): VocabularyWithItem[] {
   if (typeof window === 'undefined') return INITIAL_VOCABULARIES;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_VOCAB);
@@ -122,19 +129,23 @@ function getStoredVocabs(): VocabularyWithItem[] {
   }
 }
 
-function saveStoredVocabs(vocabs: VocabularyWithItem[]) {
+export function saveStoredVocabs(vocabs: VocabularyWithItem[]) {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY_VOCAB, JSON.stringify(vocabs));
-  } catch {}
+  } catch (err) {
+    console.error('Failed to save to localStorage', err);
+  }
 }
 
-type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+export interface ActionResult<T = void> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
 
 /**
- * 인터넷 온라인 사전 자동 검색
+ * 실시간 단어 검색 (온라인 사전 다단계 조회)
  */
 export async function searchWordOnlineAction(
   word: string
@@ -149,12 +160,29 @@ export async function searchWordOnlineAction(
 }
 
 /**
- * 단어 목록 조회
+ * 단어 목록 조회 (Turso Cloud DB 우선 조회 + 로컬 캐시 동기화)
  */
 export async function getVocabulariesAction(
   params: Partial<SearchVocabularyInput> = {}
 ): Promise<ActionResult<VocabularyListResult>> {
-  const all = getStoredVocabs();
+  let all = getStoredVocabs();
+
+  // 1. Turso Cloud DB에서 최신 데이터 조회 시도
+  try {
+    const tursoData = await fetchAllVocabulariesFromTurso();
+    if (tursoData && tursoData.length > 0) {
+      all = tursoData;
+      saveStoredVocabs(all);
+    } else if (tursoData && tursoData.length === 0 && all.length > 0) {
+      // Turso가 비어있고 로컬에 단어가 있다면 클라우드 DB로 초기 업로드 마이그레이션
+      for (const item of all) {
+        addVocabularyToTurso(item).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn('Using local storage fallback for vocabularies:', err);
+  }
+
   const query = (params.query || '').toLowerCase().trim();
   const filtered = all.filter(
     (v) =>
@@ -188,7 +216,7 @@ export async function getVocabularyByIdAction(
 }
 
 /**
- * 단어 등록
+ * 단어 등록 (Turso Cloud DB + 로컬 캐시)
  */
 export async function addVocabularyAction(
   input: CreateVocabularyInput
@@ -247,8 +275,15 @@ export async function addVocabularyAction(
     updatedAt: new Date().toISOString(),
   };
 
+  // 1. 로컬 캐시 즉시 반영
   all.unshift(newItem);
   saveStoredVocabs(all);
+
+  // 2. Turso Cloud DB 비동기 동기화
+  addVocabularyToTurso(newItem).catch((err) => {
+    console.warn('Background Turso sync failed for addVocabulary:', err);
+  });
+
   return { success: true, data: newItem };
 }
 
@@ -261,36 +296,49 @@ export async function updateVocabularyAction(
 ): Promise<ActionResult> {
   const all = getStoredVocabs();
   const idx = all.findIndex((v) => v.id === id);
-  if (idx === -1) return { success: false, error: '수정할 단어를 찾을 수 없습니다.' };
+  if (idx === -1) return { success: false, error: '단어를 찾을 수 없습니다.' };
 
   const updated: VocabularyWithItem = {
     ...all[idx],
     ...input,
-    partOfSpeech: input.partOfSpeech || all[idx].partOfSpeech,
-    pronunciation: input.pronunciation || all[idx].pronunciation,
-    exampleSentence: input.exampleSentence || all[idx].exampleSentence,
-    exampleTranslation: input.exampleTranslation || all[idx].exampleTranslation,
-    synonyms: input.synonyms || all[idx].synonyms,
-    antonyms: input.antonyms || all[idx].antonyms,
-    source: input.source || all[idx].source,
-    difficulty: input.difficulty ?? all[idx].difficulty,
-    grade: input.grade ?? all[idx].grade,
+    partOfSpeech: input.partOfSpeech ?? all[idx].partOfSpeech,
+    pronunciation: input.pronunciation ?? all[idx].pronunciation,
+    exampleSentence: input.exampleSentence ?? all[idx].exampleSentence,
+    exampleTranslation: input.exampleTranslation ?? all[idx].exampleTranslation,
+    synonyms: input.synonyms ?? all[idx].synonyms,
+    antonyms: input.antonyms ?? all[idx].antonyms,
+    source: input.source ?? all[idx].source,
     updatedAt: new Date().toISOString(),
   };
 
   all[idx] = updated;
   saveStoredVocabs(all);
-  return { success: true, data: undefined };
+
+  // Turso Cloud DB 동기화
+  updateVocabularyInTurso(id, input).catch((err) => {
+    console.warn('Background Turso sync failed for updateVocabulary:', err);
+  });
+
+  return { success: true };
 }
 
 /**
- * 단어 삭제
+ * 단어 단일 삭제
  */
 export async function deleteVocabularyAction(id: string): Promise<ActionResult> {
   const all = getStoredVocabs();
   const filtered = all.filter((v) => v.id !== id);
+  if (filtered.length === all.length) {
+    return { success: false, error: '삭제할 단어를 찾을 수 없습니다.' };
+  }
   saveStoredVocabs(filtered);
-  return { success: true, data: undefined };
+
+  // Turso Cloud DB 동기화
+  deleteVocabularyFromTurso(id).catch((err) => {
+    console.warn('Background Turso sync failed for deleteVocabulary:', err);
+  });
+
+  return { success: true };
 }
 
 /**
@@ -304,6 +352,12 @@ export async function batchDeleteVocabulariesAction(
   const filtered = all.filter((v) => !idSet.has(v.id));
   const deletedCount = all.length - filtered.length;
   saveStoredVocabs(filtered);
+
+  // Turso Cloud DB 동기화
+  batchDeleteVocabulariesFromTurso(ids).catch((err) => {
+    console.warn('Background Turso sync failed for batchDeleteVocabularies:', err);
+  });
+
   return { success: true, data: { deletedCount } };
 }
 
@@ -360,6 +414,16 @@ export async function autoFillMissingVocabulariesAction(): Promise<
           if (changed) {
             item.updatedAt = new Date().toISOString();
             updatedCount++;
+            // Turso DB도 업데이트
+            updateVocabularyInTurso(item.id, {
+              meaning: item.meaning,
+              partOfSpeech: item.partOfSpeech ?? undefined,
+              pronunciation: item.pronunciation ?? undefined,
+              exampleSentence: item.exampleSentence ?? undefined,
+              exampleTranslation: item.exampleTranslation ?? undefined,
+              synonyms: item.synonyms ?? undefined,
+              antonyms: item.antonyms ?? undefined,
+            }).catch(() => {});
           }
         }
       } catch {
@@ -377,6 +441,4 @@ export async function autoFillMissingVocabulariesAction(): Promise<
 
 export * from './phraseActions';
 export * from './dictionarySearch';
-
-
-
+export * from './tursoVocabService';

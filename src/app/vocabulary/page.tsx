@@ -104,13 +104,13 @@ export default function VocabularyPage() {
         await loadVocabularies();
         // 백그라운드 자동 보강: 뜻이 누락된 단어가 있으면 자동 채우기 실행
         const fillRes = await autoFillMissingVocabulariesAction();
-        if (fillRes.success && fillRes.data.updatedCount > 0) {
+        if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
           await loadVocabularies();
         }
       } else {
         await loadPhrases();
         const fillRes = await autoFillMissingPhrasesAction();
-        if (fillRes.success && fillRes.data.updatedCount > 0) {
+        if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
           await loadPhrases();
         }
       }
@@ -208,8 +208,9 @@ export default function VocabularyPage() {
       const res = await autoFillMissingVocabulariesAction();
       if (res.success) {
         await loadVocabularies();
-        if (res.data.updatedCount > 0) {
-          alert(`🎉 ${res.data.updatedCount}개의 단어 뜻 및 정보를 사전에서 자동으로 채워 넣었습니다!`);
+        const count = res.data?.updatedCount ?? 0;
+        if (count > 0) {
+          alert(`🎉 ${count}개의 단어 뜻 및 정보를 사전에서 자동으로 채워 넣었습니다!`);
         } else {
           alert('모든 단어의 뜻과 정보가 이미 등록되어 있습니다.');
         }
