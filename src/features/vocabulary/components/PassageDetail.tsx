@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Volume2,
@@ -25,6 +25,8 @@ import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { extractEnglishWords } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
+import { getStoredVocabs } from '@/features/vocabulary/services';
+import { getStoredPhrases } from '@/features/vocabulary/services/phraseActions';
 
 interface PassageDetailProps {
   passage: PassageItem;
@@ -54,6 +56,25 @@ export function PassageDetail({
   const [addedPhrases, setAddedPhrases] = useState<Set<string>>(new Set());
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+
+  // 이미 단어장 및 숙어장에 저장되어 있는 목록 Set (중복 표시 및 방지)
+  const registeredWordSet = useMemo(() => {
+    try {
+      const stored = getStoredVocabs();
+      return new Set(stored.map((v) => v.word.toLowerCase()));
+    } catch {
+      return new Set<string>();
+    }
+  }, [addedWords]);
+
+  const registeredPhraseSet = useMemo(() => {
+    try {
+      const stored = getStoredPhrases();
+      return new Set(stored.map((p) => p.phrase.toLowerCase()));
+    } catch {
+      return new Set<string>();
+    }
+  }, [addedPhrases]);
 
   // 추출된 숙어 목록 상태 (초기 자동 분석 + 수동 재분석 지원)
   const [extractedPhrases, setExtractedPhrases] = useState<ExtractedPhraseResult[]>([]);
@@ -177,16 +198,23 @@ export function PassageDetail({
     setAddedPhrases((prev) => new Set(prev).add(phrase));
   };
 
-  // 숙어 전체 일괄 추가
+  // 숙어 전체 일괄 추가 (중복 등록 방지 필터링)
   const handleBatchAddPhrases = () => {
-    const unadded = extractedPhrases.filter((p) => !addedPhrases.has(p.phrase));
-    if (unadded.length === 0) return;
+    const unadded = extractedPhrases.filter(
+      (p) => !registeredPhraseSet.has(p.phrase.toLowerCase()) && !addedPhrases.has(p.phrase)
+    );
+
+    if (unadded.length === 0) {
+      alert(`지문 내 검출된 모든 숙어(${extractedPhrases.length}개)가 이미 숙어장에 등록되어 있습니다! 🔖`);
+      return;
+    }
 
     if (onBatchAddPhrasesToVocab) {
       onBatchAddPhrasesToVocab(unadded.map((p) => ({ phrase: p.phrase, meaning: p.meaning })));
     } else {
       unadded.forEach((p) => onAddPhraseToVocab?.(p.phrase, p.meaning));
     }
+
     setAddedPhrases((prev) => {
       const next = new Set(prev);
       unadded.forEach((p) => next.add(p.phrase));
@@ -194,10 +222,16 @@ export function PassageDetail({
     });
   };
 
-  // 단어 전체 일괄 추가
+  // 단어 전체 일괄 추가 (중복 등록 방지 필터링)
   const handleBatchAddWords = () => {
-    const unadded = extractedWords.filter((w) => !addedWords.has(w));
-    if (unadded.length === 0) return;
+    const unadded = extractedWords.filter(
+      (w) => !registeredWordSet.has(w.toLowerCase()) && !addedWords.has(w)
+    );
+
+    if (unadded.length === 0) {
+      alert(`지문 내 검출된 모든 단어(${extractedWords.length}개)가 이미 단어장에 등록되어 있습니다! 📚`);
+      return;
+    }
 
     const items = unadded.map((w) => {
       const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
@@ -213,6 +247,7 @@ export function PassageDetail({
     } else {
       items.forEach((item) => onAddWordToVocab?.(item.word, item.meaning));
     }
+
     setAddedWords((prev) => {
       const next = new Set(prev);
       unadded.forEach((w) => next.add(w));
@@ -399,7 +434,7 @@ export function PassageDetail({
                 지문 핵심 숙어 및 연어 ({extractedPhrases.length}개 자동 판독)
               </h4>
               <p className="text-[11px] text-muted-foreground">
-                본문 문맥을 정밀 분석하여 검출된 필수 관용구 및 연어입니다.
+                본문 문맥을 정밀 분석하여 검출된 필수 관용구 및 연어입니다. (이미 등록된 숙어는 중복 저장되지 않습니다)
               </p>
             </div>
 
@@ -423,7 +458,7 @@ export function PassageDetail({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {extractedPhrases.map((item) => {
-                const isAdded = addedPhrases.has(item.phrase);
+                const isRegistered = registeredPhraseSet.has(item.phrase.toLowerCase()) || addedPhrases.has(item.phrase);
 
                 return (
                   <div
@@ -433,6 +468,11 @@ export function PassageDetail({
                     <div className="space-y-0.5 min-w-0 pr-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-foreground">{item.phrase}</span>
+                        {isRegistered && (
+                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
+                            <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
+                          </Badge>
+                        )}
                         {item.matchedText && item.matchedText.toLowerCase() !== item.phrase.toLowerCase() && (
                           <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-1 rounded font-mono">
                             본문: {item.matchedText}
@@ -444,12 +484,12 @@ export function PassageDetail({
 
                     <Button
                       size="sm"
-                      variant={isAdded ? 'secondary' : 'default'}
+                      variant={isRegistered ? 'secondary' : 'default'}
                       className="h-6 px-2 text-[10px] shrink-0 gap-1 font-semibold"
-                      disabled={isAdded}
+                      disabled={isRegistered}
                       onClick={() => handleAddPhrase(item.phrase, item.meaning)}
                     >
-                      {isAdded ? (
+                      {isRegistered ? (
                         <>
                           <Check className="h-3 w-3 text-emerald-500" />
                           등록됨
@@ -482,7 +522,7 @@ export function PassageDetail({
                   지문 핵심 어휘 (총 {extractedWords.length}개 전수 판독)
                 </h4>
                 <p className="text-[11px] text-muted-foreground">
-                  사전 및 실시간 인터넷 검색을 거친 표준 영한 어휘 목록입니다.
+                  사전 및 실시간 인터넷 검색을 거친 표준 영한 어휘 목록입니다. (이미 등록된 단어는 중복 저장되지 않습니다)
                 </p>
               </div>
 
@@ -503,7 +543,7 @@ export function PassageDetail({
                 const online = onlineMeaningMap[word];
                 const meaning = dict ? dict.meaning : (online?.meaning || '사전 검색 중...');
                 const pron = dict?.pron || online?.pron;
-                const isAdded = addedWords.has(word);
+                const isRegistered = registeredWordSet.has(word.toLowerCase()) || addedWords.has(word);
 
                 return (
                   <div
@@ -511,8 +551,13 @@ export function PassageDetail({
                     className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-background/60 text-xs"
                   >
                     <div className="space-y-0.5 min-w-0 pr-2">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <span className="font-bold text-foreground">{word}</span>
+                        {isRegistered && (
+                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
+                            <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
+                          </Badge>
+                        )}
                         {pron && (
                           <span className="text-[10px] text-primary/80">{pron}</span>
                         )}
@@ -522,12 +567,12 @@ export function PassageDetail({
 
                     <Button
                       size="sm"
-                      variant={isAdded ? 'secondary' : 'outline'}
+                      variant={isRegistered ? 'secondary' : 'outline'}
                       className="h-6 px-2 text-[10px] shrink-0 gap-1 font-semibold"
-                      disabled={isAdded}
+                      disabled={isRegistered}
                       onClick={() => handleAddWord(word, meaning)}
                     >
-                      {isAdded ? (
+                      {isRegistered ? (
                         <>
                           <Check className="h-3 w-3 text-emerald-500" />
                           등록됨

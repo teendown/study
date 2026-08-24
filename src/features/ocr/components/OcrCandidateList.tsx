@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import { CheckSquare, Square, Volume2, Plus, Sparkles, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { CheckSquare, Square, Volume2, Plus, Sparkles, Loader2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
+import { getStoredVocabs } from '@/features/vocabulary/services';
 
 interface OcrCandidateListProps {
   initialCandidates: ExtractedWordCandidate[];
@@ -19,7 +21,23 @@ export function OcrCandidateList({
   onSaveSelected,
   onCancel,
 }: OcrCandidateListProps) {
-  const [candidates, setCandidates] = useState<ExtractedWordCandidate[]>(initialCandidates);
+  // 이미 단어장에 등록된 단어 Set
+  const existingWordSet = useMemo(() => {
+    try {
+      const stored = getStoredVocabs();
+      return new Set(stored.map((v) => v.word.toLowerCase()));
+    } catch {
+      return new Set<string>();
+    }
+  }, []);
+
+  // 이미 등록된 단어는 기본 선택 해제 처리
+  const [candidates, setCandidates] = useState<ExtractedWordCandidate[]>(() =>
+    initialCandidates.map((c) => ({
+      ...c,
+      selected: !existingWordSet.has(c.word.toLowerCase()),
+    }))
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
 
@@ -166,64 +184,73 @@ export function OcrCandidateList({
 
       {/* 후보 단어 리스트 (스크롤) */}
       <div className="space-y-2 overflow-y-auto flex-1 pr-1">
-        {candidates.map((item) => (
-          <Card
-            key={item.id}
-            className={`border transition-all ${
-              item.selected ? 'border-primary/40 bg-primary/5' : 'opacity-60 border-border'
-            }`}
-          >
-            <CardContent className="p-3 flex items-center gap-3">
-              {/* 체크박스 */}
-              <button
-                type="button"
-                onClick={() => toggleItem(item.id)}
-                className="shrink-0 p-1 text-primary focus:outline-hidden"
-              >
-                {item.selected ? (
-                  <CheckSquare className="h-5 w-5 fill-primary text-background" />
-                ) : (
-                  <Square className="h-5 w-5 text-muted-foreground" />
-                )}
-              </button>
+        {candidates.map((item) => {
+          const isRegistered = existingWordSet.has(item.word.toLowerCase());
 
-              {/* 단어 & 발음 */}
-              <div className="min-w-[110px] shrink-0">
-                <div className="flex items-center gap-1">
-                  <span className="font-bold text-sm text-foreground">{item.word}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 text-muted-foreground hover:text-primary"
-                    onClick={() => handleSpeak(item.word)}
-                  >
-                    <Volume2 className="h-3 w-3" />
-                  </Button>
-                </div>
-                <div className="flex items-center gap-1">
-                  {item.partOfSpeech && (
-                    <span className="text-[10px] text-muted-foreground">{item.partOfSpeech}</span>
+          return (
+            <Card
+              key={item.id}
+              className={`border transition-all ${
+                item.selected ? 'border-primary/40 bg-primary/5' : 'opacity-60 border-border'
+              }`}
+            >
+              <CardContent className="p-3 flex items-center gap-3">
+                {/* 체크박스 */}
+                <button
+                  type="button"
+                  onClick={() => toggleItem(item.id)}
+                  className="shrink-0 p-1 text-primary focus:outline-hidden"
+                >
+                  {item.selected ? (
+                    <CheckSquare className="h-5 w-5 fill-primary text-background" />
+                  ) : (
+                    <Square className="h-5 w-5 text-muted-foreground" />
                   )}
-                  {item.pronunciation && (
-                    <span className="text-[10px] text-primary/80 font-medium">
-                      {item.pronunciation}
-                    </span>
-                  )}
-                </div>
-              </div>
+                </button>
 
-              {/* 뜻 입력/수정 창 */}
-              <div className="flex-1">
-                <Input
-                  value={item.meaning}
-                  onChange={(e) => handleMeaningChange(item.id, e.target.value)}
-                  placeholder="단어의 뜻을 입력하세요..."
-                  className="h-8 text-xs bg-background"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                {/* 단어 & 발음 & 중복 배지 */}
+                <div className="min-w-[120px] shrink-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold text-sm text-foreground">{item.word}</span>
+                    {isRegistered && (
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
+                        <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 text-muted-foreground hover:text-primary"
+                      onClick={() => handleSpeak(item.word)}
+                    >
+                      <Volume2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {item.partOfSpeech && (
+                      <span className="text-[10px] text-muted-foreground">{item.partOfSpeech}</span>
+                    )}
+                    {item.pronunciation && (
+                      <span className="text-[10px] text-primary/80 font-medium">
+                        {item.pronunciation}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 뜻 입력/수정 창 */}
+                <div className="flex-1">
+                  <Input
+                    value={item.meaning}
+                    onChange={(e) => handleMeaningChange(item.id, e.target.value)}
+                    placeholder="단어의 뜻을 입력하세요..."
+                    className="h-8 text-xs bg-background"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* 하단 저장/취소 버튼 */}

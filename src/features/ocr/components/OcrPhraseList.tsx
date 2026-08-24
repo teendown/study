@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { CheckSquare, Square, Volume2, BookmarkPlus, Sparkles, Plus, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
+import { getStoredPhrases } from '@/features/vocabulary/services/phraseActions';
 
 interface OcrPhraseListProps {
   initialPhrases: ExtractedPhraseResult[];
@@ -19,7 +20,23 @@ export function OcrPhraseList({
   onSaveSelected,
   onCancel,
 }: OcrPhraseListProps) {
-  const [phrases, setPhrases] = useState<ExtractedPhraseResult[]>(initialPhrases);
+  // 이미 숙어장에 등록된 숙어 Set
+  const existingPhraseSet = useMemo(() => {
+    try {
+      const stored = getStoredPhrases();
+      return new Set(stored.map((p) => p.phrase.toLowerCase()));
+    } catch {
+      return new Set<string>();
+    }
+  }, []);
+
+  // 이미 등록된 숙어는 기본 선택 해제
+  const [phrases, setPhrases] = useState<ExtractedPhraseResult[]>(() =>
+    initialPhrases.map((p) => ({
+      ...p,
+      selected: !existingPhraseSet.has(p.phrase.toLowerCase()),
+    }))
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   // 전체 선택/해제
@@ -67,109 +84,108 @@ export function OcrPhraseList({
     }
   };
 
-  if (phrases.length === 0) {
-    return (
-      <div className="py-8 text-center space-y-3">
-        <div className="mx-auto w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-500">
-          <BookmarkPlus className="h-6 w-6" />
-        </div>
-        <div className="space-y-1">
-          <h4 className="font-bold text-sm text-foreground">판독된 숙어가 없습니다</h4>
-          <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-            이 지문에는 등록된 관용구/숙어 패턴이 발견되지 않았습니다. [단어] 또는 [본문] 탭에서 학습을 진행해 주세요.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-3 max-h-[75vh] flex flex-col">
-      {/* 상단 컨트롤 바 */}
-      <div className="flex items-center justify-between border-b border-border pb-2 shrink-0 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleSelectAll}
-            className="h-7 px-2 text-xs font-semibold gap-1 text-muted-foreground hover:text-foreground"
-          >
-            {isAllSelected ? (
-              <CheckSquare className="h-3.5 w-3.5 text-primary" />
-            ) : (
-              <Square className="h-3.5 w-3.5" />
-            )}
-            전체 선택 ({selectedCount}/{phrases.length})
-          </Button>
-        </div>
+    <div className="space-y-4 max-h-[75vh] flex flex-col">
+      {/* 상단 액션 바: 전체 선택 & 카운트 */}
+      <div className="flex items-center justify-between border-b border-border pb-2 shrink-0 gap-2 flex-wrap">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleSelectAll}
+          className="text-xs font-bold gap-1.5"
+        >
+          {isAllSelected ? (
+            <>
+              <CheckSquare className="h-4 w-4 text-indigo-500" />
+              전체 해제
+            </>
+          ) : (
+            <>
+              <Square className="h-4 w-4 text-muted-foreground" />
+              전체 선택
+            </>
+          )}
+        </Button>
 
-        <span className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1">
-          <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-          {phrases.length}개 필수 숙어 자동 판독됨
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            총 <span className="font-bold text-foreground">{phrases.length}</span>개 중{' '}
+            <span className="font-bold text-indigo-600 dark:text-indigo-400">{selectedCount}</span>개 선택됨
+          </span>
+        </div>
       </div>
 
-      {/* 숙어 리스트 */}
+      {/* 추출된 숙어 목록 */}
       <div className="space-y-2 overflow-y-auto flex-1 pr-1">
-        {phrases.map((item) => (
-          <Card
-            key={item.phrase}
-            className={`border transition-all duration-150 ${
-              item.selected
-                ? 'border-indigo-500/40 bg-indigo-50/30 dark:bg-indigo-950/20 shadow-xs'
-                : 'border-border opacity-70 bg-card'
-            }`}
-          >
-            <CardContent className="p-2.5 flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => toggleItem(item.id, item.phrase)}
-                className="shrink-0 text-muted-foreground hover:text-primary transition-colors mt-0.5"
+        {phrases.length === 0 ? (
+          <div className="py-8 text-center text-xs text-muted-foreground">
+            인식된 필수 숙어가 없습니다.
+          </div>
+        ) : (
+          phrases.map((item) => {
+            const isRegistered = existingPhraseSet.has(item.phrase.toLowerCase());
+
+            return (
+              <Card
+                key={item.phrase}
+                className={`border transition-all ${
+                  item.selected ? 'border-indigo-500/40 bg-indigo-50/20 dark:bg-indigo-950/20' : 'opacity-60 border-border'
+                }`}
               >
-                {item.selected ? (
-                  <CheckSquare className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                ) : (
-                  <Square className="h-4 w-4" />
-                )}
-              </button>
-
-              <div className="flex-1 min-w-0 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-sm text-foreground">
-                    {item.phrase}
-                  </span>
-
-                  {item.matchedText && item.matchedText.toLowerCase() !== item.phrase.toLowerCase() && (
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded font-mono">
-                      본문: {item.matchedText}
-                    </span>
-                  )}
-
-                  <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                    난이도 {item.difficulty}
-                  </Badge>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    value={item.meaning}
-                    onChange={(e) => handleMeaningChange(item.phrase, e.target.value)}
-                    placeholder="한국어 뜻 입력"
-                    className="h-7 text-xs bg-background/80"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-primary shrink-0"
-                    onClick={() => handleSpeak(item.phrase)}
+                <CardContent className="p-3 flex items-center gap-3">
+                  {/* 체크박스 */}
+                  <button
+                    type="button"
+                    onClick={() => toggleItem(item.id, item.phrase)}
+                    className="shrink-0 p-1 text-indigo-600 focus:outline-hidden"
                   >
-                    <Volume2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                    {item.selected ? (
+                      <CheckSquare className="h-5 w-5 fill-indigo-600 text-background" />
+                    ) : (
+                      <Square className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </button>
+
+                  {/* 숙어 표제어 & 본문 문맥 & 중복 여부 */}
+                  <div className="min-w-[140px] shrink-0 space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-sm text-foreground">{item.phrase}</span>
+                      {isRegistered && (
+                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
+                          <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
+                        </Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 text-muted-foreground hover:text-indigo-600"
+                        onClick={() => handleSpeak(item.phrase)}
+                      >
+                        <Volume2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+
+                    {item.matchedText && item.matchedText.toLowerCase() !== item.phrase.toLowerCase() && (
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/40 px-1 rounded block truncate font-mono max-w-[150px]">
+                        본문: {item.matchedText}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 뜻 입력/수정 창 */}
+                  <div className="flex-1">
+                    <Input
+                      value={item.meaning}
+                      onChange={(e) => handleMeaningChange(item.phrase, e.target.value)}
+                      placeholder="숙어의 뜻을 입력하세요..."
+                      className="h-8 text-xs bg-background"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
       </div>
 
       {/* 하단 저장/취소 버튼 */}
@@ -183,7 +199,7 @@ export function OcrPhraseList({
           disabled={selectedCount === 0 || isSaving}
         >
           <BookmarkPlus className="h-4 w-4" />
-          {isSaving ? '저장 중...' : `선택한 ${selectedCount}개 숙어장에 저장`}
+          {isSaving ? '숙어 저장 중...' : `선택한 ${selectedCount}개 숙어 등록`}
         </Button>
       </div>
     </div>
