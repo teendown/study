@@ -168,7 +168,7 @@ export async function addPhraseAction(
   let finalMeaning = input.meaning.trim();
   let finalEx = input.exampleSentence || null;
   let finalExTrans = input.exampleTranslation || null;
-  let finalSource = input.source || '직접 등록';
+  let finalSource = input.source || '네이버 영어사전';
 
   if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
     try {

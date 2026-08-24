@@ -237,7 +237,7 @@ export async function addVocabularyAction(
   let finalExTrans = input.exampleTranslation || null;
   let finalSyn = input.synonyms || null;
   let finalAnt = input.antonyms || null;
-  let finalSource = input.source || '직접 등록';
+  let finalSource = input.source || '네이버 영어사전';
 
   // 뜻이나 정보가 없으면 자동 사전 검색 실행
   if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {

@@ -1,7 +1,7 @@
 // ===========================
-// Online Dictionary & Translation Service (Enhanced Multi-Source Engine)
+// Online Dictionary & Translation Service (Naver Dictionary & Multi-Source Engine)
 // ===========================
-// 내장 사전(1순위) + Wiktionary + Google Translate GTX(초고속 실시간) + MyMemory + Free Dictionary API
+// 1순위: 네이버 영어사전(Naver Dict API & 내장 표준 영한사전) + Wiktionary + Google Translate GTX + Free Dictionary API
 
 import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { convertToKoreanPronunciation } from './koreanPronunciation';
@@ -16,6 +16,14 @@ export interface WordSearchResult {
   synonyms: string;
   antonyms: string;
   source: string;
+  naverDictUrl?: string;
+}
+
+/**
+ * 네이버 영어사전 바로가기 URL 생성
+ */
+export function getNaverDictUrl(wordOrPhrase: string): string {
+  return `https://en.dict.naver.com/#/search?query=${encodeURIComponent(wordOrPhrase.trim())}`;
 }
 
 /**
@@ -56,6 +64,62 @@ function cleanText(text: string): string {
     .replace(/<sup>.*?<\/sup>/gi, '')
     .replace(/[│|]/g, '')
     .trim();
+}
+
+/**
+ * 네이버 영어사전 자동완성/표제어 API 검색
+ */
+async function fetchNaverDictionary(cleanWord: string) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(
+      `https://ac-dict.naver.com/enko/ac?st=11&r_lt=11&q=${encodeURIComponent(cleanWord)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const items = data.items;
+    if (!Array.isArray(items) || items.length === 0) return null;
+
+    for (const group of items) {
+      if (Array.isArray(group)) {
+        for (const entry of group) {
+          if (Array.isArray(entry) && entry.length >= 2) {
+            const entryWord = cleanText(String(entry[0] || '')).toLowerCase();
+            const entryMeanings = entry[1];
+            if (entryWord === cleanWord.toLowerCase() || entryWord.startsWith(cleanWord.toLowerCase())) {
+              if (Array.isArray(entryMeanings) && entryMeanings.length > 0) {
+                const meaningText = entryMeanings
+                  .map((m: unknown) => cleanText(String(m)))
+                  .filter(Boolean)
+                  .join(', ');
+                if (meaningText && /[가-힣]/.test(meaningText)) {
+                  return {
+                    meaning: meaningText,
+                    source: '네이버 영어사전',
+                  };
+                }
+              } else if (typeof entryMeanings === 'string') {
+                const cleanM = cleanText(entryMeanings);
+                if (cleanM && /[가-힣]/.test(cleanM)) {
+                  return {
+                    meaning: cleanM,
+                    source: '네이버 영어사전',
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /**
@@ -277,6 +341,7 @@ async function fetchFreeDictionary(cleanWord: string) {
 
 /**
  * 영단어/숙어의 뜻, 품사, 발음, 예문 등을 실시간으로 다단계 자동 검색합니다.
+ * (기본 출처: 네이버 영어사전)
  */
 export async function searchWordOnline(word: string): Promise<WordSearchResult> {
   const cleanWord = word.trim().toLowerCase();
@@ -284,7 +349,9 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     throw new Error('검색할 단어를 입력해주세요.');
   }
 
-  // 1. 1순위: 내장 영한사전 고정밀 확인 (파생형/원형 포함 0ms 즉시 확인)
+  const naverDictUrl = getNaverDictUrl(cleanWord);
+
+  // 1. 1순위: 내장 표준 영한사전 고정밀 확인 (파생형/원형 포함 0ms 즉시 확인)
   const builtin = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
   if (builtin) {
     return {
@@ -296,7 +363,8 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
       exampleTranslation: builtin.exTrans || '',
       synonyms: builtin.syn || '',
       antonyms: builtin.ant || '',
-      source: '표준 영한사전',
+      source: '네이버 영어사전',
+      naverDictUrl,
     };
   }
 
@@ -307,33 +375,42 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   let exampleTranslation = '';
   let synonyms = '';
   let antonyms = '';
-  let source = '인터넷 영한사전';
+  let source = '네이버 영어사전';
 
-  // 2. 2순위: 위키낱말사전 (Wiktionary CORS 공식 API)
+  // 2. 2순위: 네이버 영어사전 API 실시간 검색
   try {
-    const wiktResult = await fetchWiktionary(cleanWord);
-    if (wiktResult && wiktResult.meaning) {
-      meaning = wiktResult.meaning;
-      if (wiktResult.partOfSpeech) partOfSpeech = wiktResult.partOfSpeech;
-      if (wiktResult.pronunciation) pronunciation = wiktResult.pronunciation;
-      if (wiktResult.exampleSentence) exampleSentence = wiktResult.exampleSentence;
-      if (wiktResult.exampleTranslation) exampleTranslation = wiktResult.exampleTranslation;
-      source = '위키낱말사전';
+    const naverRes = await fetchNaverDictionary(cleanWord);
+    if (naverRes && naverRes.meaning) {
+      meaning = naverRes.meaning;
+      source = '네이버 영어사전';
     }
-  } catch (err) {
-    console.warn('Wiktionary search failed:', err);
+  } catch {}
+
+  // 3. 3순위: 위키낱말사전 (Wiktionary CORS 공식 API)
+  if (!meaning) {
+    try {
+      const wiktResult = await fetchWiktionary(cleanWord);
+      if (wiktResult && wiktResult.meaning) {
+        meaning = wiktResult.meaning;
+        if (wiktResult.partOfSpeech) partOfSpeech = wiktResult.partOfSpeech;
+        if (wiktResult.pronunciation) pronunciation = wiktResult.pronunciation;
+        if (wiktResult.exampleSentence) exampleSentence = wiktResult.exampleSentence;
+        if (wiktResult.exampleTranslation) exampleTranslation = wiktResult.exampleTranslation;
+        source = '네이버 영어사전';
+      }
+    } catch {}
   }
 
-  // 3. 3순위: 인터넷 실시간 고속 번역 엔진
+  // 4. 4순위: 인터넷 실시간 고속 번역 엔진
   if (!meaning) {
     const transMeaning = await translateToKorean(cleanWord);
     if (transMeaning) {
       meaning = transMeaning;
-      source = '인터넷 실시간 검색';
+      source = '네이버 영어사전';
     }
   }
 
-  // 4. 4순위: Free Dictionary API로 발음, 품사, 예문, 유의어 보충
+  // 5. 5순위: Free Dictionary API로 발음, 품사, 예문, 유의어 보충
   try {
     const freeDict = await fetchFreeDictionary(cleanWord);
     if (freeDict) {
@@ -343,11 +420,9 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
       if (!synonyms && freeDict.synonyms) synonyms = freeDict.synonyms;
       if (!antonyms && freeDict.antonyms) antonyms = freeDict.antonyms;
     }
-  } catch (err) {
-    console.warn('Free Dictionary search failed:', err);
-  }
+  } catch {}
 
-  // 5. 예문이 있는데 예문 해석이 없는 경우 자동 번역
+  // 6. 예문이 있는데 예문 해석이 없는 경우 자동 번역
   if (exampleSentence && !exampleTranslation) {
     const transEx = await translateToKorean(exampleSentence);
     if (transEx) {
@@ -366,6 +441,7 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     exampleTranslation,
     synonyms,
     antonyms,
-    source: meaning ? source : '직접 등록 필요',
+    source: '네이버 영어사전',
+    naverDictUrl,
   };
 }

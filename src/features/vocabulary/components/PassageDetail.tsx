@@ -16,6 +16,7 @@ import {
   BookmarkPlus,
   RefreshCw,
   CheckCheck,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,7 +25,7 @@ import type { PassageItem } from '../types/passageTypes';
 import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { extractEnglishWords } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
-import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
+import { searchWordOnline, getNaverDictUrl } from '@/features/vocabulary/services/dictionarySearch';
 import { getStoredVocabs } from '@/features/vocabulary/services';
 import { getStoredPhrases } from '@/features/vocabulary/services/phraseActions';
 
@@ -468,6 +469,15 @@ export function PassageDetail({
                     <div className="space-y-0.5 min-w-0 pr-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-foreground">{item.phrase}</span>
+                        <a
+                          href={getNaverDictUrl(item.phrase)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="네이버 영어사전 검색"
+                          className="text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 inline-flex items-center"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
                         {isRegistered && (
                           <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
                             <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
@@ -551,8 +561,17 @@ export function PassageDetail({
                     className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-background/60 text-xs"
                   >
                     <div className="space-y-0.5 min-w-0 pr-2">
-                      <div className="flex items-center gap-1 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-foreground">{word}</span>
+                        <a
+                          href={getNaverDictUrl(word)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="네이버 영어사전 검색"
+                          className="text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 inline-flex items-center"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
                         {isRegistered && (
                           <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
                             <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨

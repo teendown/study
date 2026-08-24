@@ -168,11 +168,22 @@ export function PhraseDetail({
 
           <Separator />
 
-          {/* 메타 정보 */}
-          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-            <span>난이도: {difficultyStars[phrase.difficulty] || '⭐'}</span>
-            {phrase.grade && <span>학년: 고{phrase.grade - 9}</span>}
-            {phrase.source && <span>출처: {phrase.source}</span>}
+          {/* 메타 정보 & 네이버 영어사전 바로가기 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground pt-1">
+            <div className="flex flex-wrap gap-3">
+              <span>난이도: {difficultyStars[phrase.difficulty] || '⭐'}</span>
+              {phrase.grade && <span>학년: 고{phrase.grade - 9}</span>}
+              <span>출처: {phrase.source || '네이버 영어사전'}</span>
+            </div>
+
+            <a
+              href={`https://en.dict.naver.com/#/search?query=${encodeURIComponent(phrase.phrase)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              📗 네이버 영어사전에서 보기 ↗
+            </a>
           </div>
         </CardContent>
       </Card>
