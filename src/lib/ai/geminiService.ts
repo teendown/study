@@ -68,6 +68,34 @@ export function setGeminiApiKey(key: string): void {
 }
 
 /**
+ * 범용 Gemini 텍스트 프롬프트 호출 함수
+ */
+export async function callGeminiApi(prompt: string): Promise<string | null> {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text.trim();
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/**
  * Gemini API Key 유효성 및 테스트
  */
 export async function testGeminiApiKey(apiKey: string): Promise<{ success: boolean; message: string }> {

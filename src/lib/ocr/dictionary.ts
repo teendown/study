@@ -926,7 +926,6 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   correct: { meaning: '맞는, 올바른, 바로잡다', pos: 'adj.', pron: '[코렉트]', ex: 'That is the correct answer.', exTrans: '그것이 올바른 답이다.', syn: 'right, accurate, precise', ant: 'incorrect, wrong', diff: 1 },
   incorrect: { meaning: '부정확한, 틀린', pos: 'adj.', pron: '[인코렉트]', ex: 'The calculation was incorrect.', exTrans: '계산이 틀렸다.', syn: 'wrong, false, inaccurate', ant: 'correct, right', diff: 2 },
   safe: { meaning: '안전한, 금고', pos: 'adj.', pron: '[세이프]', ex: 'Have a safe trip.', exTrans: '안전한 여행 되세요.', syn: 'secure, protected', ant: 'dangerous, unsafe', diff: 1 },
-  clean: { meaning: '깨끗한, 청소하다', pos: 'adj.', pron: '[클린]', diff: 1 },
   dirty: { meaning: '더러운, 지저분한', pos: 'adj.', pron: '[더티]', diff: 1 },
   yield: { meaning: '산출하다, 양보하다, 굴복하다', pos: 'v.', pron: '[일드]', diff: 3 },
 };
