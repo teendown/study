@@ -615,7 +615,27 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   const isPhrase = cleanWord.includes(' ');
   const naverDictUrl = getNaverDictUrl(cleanWord);
 
-  // 1. 1순위: Gemini AI 초정밀 어휘/숙어 분석 (최우선 실행)
+  // 1. 1순위: 내장 표준 영한사전 정밀 확인 (검증된 뜻, 품사, 발음, 예문, 유의어, 반의어 0ms 즉시 반환)
+  const builtin = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
+  if (builtin && builtin.meaning && !builtin.meaning.includes('사전 등록 필요')) {
+    const validEx = isValidExampleForWord(builtin.ex || '', cleanWord) ? (builtin.ex || '') : '';
+    const validExTrans = validEx ? (builtin.exTrans || '') : '';
+
+    return {
+      word: cleanWord,
+      meaning: builtin.meaning,
+      partOfSpeech: normalizePartOfSpeech(builtin.pos, cleanWord),
+      pronunciation: builtin.pron || convertToKoreanPronunciation('', cleanWord),
+      exampleSentence: validEx,
+      exampleTranslation: validExTrans,
+      synonyms: builtin.syn || '',
+      antonyms: builtin.ant || '',
+      source: '네이버 영어사전',
+      naverDictUrl,
+    };
+  }
+
+  // 2. 2순위: Gemini AI 초정밀 어휘/숙어 분석 (내장 사전에 없는 신조어, 전문 용어 등)
   if (getGeminiApiKey()) {
     try {
       const geminiResult = await analyzeWordWithGemini(cleanWord);
@@ -640,26 +660,6 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
         };
       }
     } catch {}
-  }
-
-  // 2. 2순위: 내장 표준 영한사전 확인 (파생형/원형 포함)
-  const builtin = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
-  if (builtin && builtin.meaning && !builtin.meaning.includes('사전 등록 필요')) {
-    const validEx = isValidExampleForWord(builtin.ex || '', cleanWord) ? (builtin.ex || '') : '';
-    const validExTrans = validEx ? (builtin.exTrans || '') : '';
-
-    return {
-      word: cleanWord,
-      meaning: builtin.meaning,
-      partOfSpeech: normalizePartOfSpeech(builtin.pos, cleanWord),
-      pronunciation: builtin.pron || convertToKoreanPronunciation('', cleanWord),
-      exampleSentence: validEx,
-      exampleTranslation: validExTrans,
-      synonyms: builtin.syn || '',
-      antonyms: builtin.ant || '',
-      source: '네이버 영어사전',
-      naverDictUrl,
-    };
   }
 
   // 3. 3순위: 다중 온라인 사전 및 초고속 번역기 수집
@@ -780,25 +780,33 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   const finalKoreanPron = convertToKoreanPronunciation(pronunciation, cleanWord);
   let sanitizedMeaning = sanitizeMeaningText(meaning, cleanWord);
 
-  // 최종 방어: 절대 '사전 등록 필요'가 남지 않도록 실시간 번역으로 뜻 강제 완성
+  // 최종 방어: 뜻이 비어있거나 '사전 등록 필요'인 경우 실시간 번역 엔진으로 뜻 완성
   if (!sanitizedMeaning || sanitizedMeaning === '사전 등록 필요') {
     try {
       const fallbackTrans = await translateToKorean(cleanWord);
-      if (fallbackTrans) {
+      if (fallbackTrans && !fallbackTrans.includes('사전 등록 필요')) {
         sanitizedMeaning = sanitizeMeaningText(fallbackTrans, cleanWord) || fallbackTrans;
       }
     } catch {}
   }
 
+  // 만약 여전히 뜻이 비어있다면 내장 사전 파생형/유사어 재조회
+  if (!sanitizedMeaning) {
+    const builtinFallback = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
+    if (builtinFallback?.meaning) {
+      sanitizedMeaning = builtinFallback.meaning;
+    }
+  }
+
   return {
     word: cleanWord,
-    meaning: sanitizedMeaning || '동기화하다, 맞추다',
+    meaning: sanitizedMeaning || cleanWord,
     partOfSpeech: normalizePartOfSpeech(partOfSpeech, cleanWord),
     pronunciation: finalKoreanPron,
     exampleSentence,
     exampleTranslation,
-    synonyms,
-    antonyms,
+    synonyms: synonyms || '',
+    antonyms: antonyms || '',
     source,
     naverDictUrl,
   };

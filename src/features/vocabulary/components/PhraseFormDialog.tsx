@@ -134,18 +134,19 @@ export function PhraseFormDialog({
     }
   };
 
-  // ⚡ 숙어 입력 중 300ms 디바운스 실시간 자동 검색
+  // ⚡ 숙어 입력 중 350ms 디바운스 실시간 자동 검색 (생성/수정 모드 모두 지원)
   useEffect(() => {
-    if (!open || mode !== 'create') return;
+    if (!open) return;
     const clean = phrase.trim();
     if (clean.length < 3) return;
+    if (clean.toLowerCase() === lastSearchedPhrase.current.toLowerCase()) return;
 
     const timer = setTimeout(() => {
       executeSearch(clean, false);
-    }, 300);
+    }, 350);
 
     return () => clearTimeout(timer);
-  }, [phrase, open, mode]);
+  }, [phrase, open]);
 
   const handleManualSearch = () => {
     executeSearch(phrase, true);
