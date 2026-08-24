@@ -4,6 +4,7 @@
 // 내장 사전(1순위 즉시 매칭) + 위키낱말사전(Wiktionary CORS 공식 API) + Free Dictionary API + 온라인 번역
 
 import { BUILTIN_DICTIONARY } from '@/lib/ocr/dictionary';
+import { convertToKoreanPronunciation } from './koreanPronunciation';
 
 export interface WordSearchResult {
   word: string;
@@ -326,11 +327,13 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     }
   }
 
+  const finalKoreanPron = convertToKoreanPronunciation(pronunciation, cleanWord);
+
   return {
     word: cleanWord,
     meaning: meaning || '의미 검색 필요',
     partOfSpeech,
-    pronunciation,
+    pronunciation: finalKoreanPron,
     exampleSentence,
     exampleTranslation,
     synonyms,
