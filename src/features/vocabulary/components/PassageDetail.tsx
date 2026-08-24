@@ -28,16 +28,31 @@ import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phr
 import { searchWordOnline, getNaverDictUrl } from '@/features/vocabulary/services/dictionarySearch';
 import { getStoredVocabs } from '@/features/vocabulary/services';
 import { getStoredPhrases } from '@/features/vocabulary/services/phraseActions';
+import { findSentenceInPassage } from '@/lib/ocr/textCleaner';
+
+export interface PassageWordItem {
+  word: string;
+  meaning: string;
+  exampleSentence?: string;
+  exampleTranslation?: string;
+}
+
+export interface PassagePhraseItem {
+  phrase: string;
+  meaning: string;
+  exampleSentence?: string;
+  exampleTranslation?: string;
+}
 
 interface PassageDetailProps {
   passage: PassageItem;
   onBack: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
-  onAddWordToVocab?: (word: string, meaning: string) => void;
-  onAddPhraseToVocab?: (phrase: string, meaning: string) => void;
-  onBatchAddWordsToVocab?: (items: Array<{ word: string; meaning: string }>) => void;
-  onBatchAddPhrasesToVocab?: (items: Array<{ phrase: string; meaning: string }>) => void;
+  onAddWordToVocab?: (word: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => void;
+  onAddPhraseToVocab?: (phrase: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => void;
+  onBatchAddWordsToVocab?: (items: PassageWordItem[]) => void;
+  onBatchAddPhrasesToVocab?: (items: PassagePhraseItem[]) => void;
 }
 
 export function PassageDetail({
@@ -84,7 +99,7 @@ export function PassageDetail({
   // 사전에 없는 단어 실시간 인터넷 검색 캐시
   const [onlineMeaningMap, setOnlineMeaningMap] = useState<Record<string, { meaning: string; pron?: string }>>({});
 
-  // 1. 처음에 지문 들어갈 때 자동 분석 실행 (3개 등 한정 없이 본문에서 검색되는 모든 숙어/단어 전수 추출)
+  // 1. 처음에 지문 들어갈 때 자동 분석 실행 (본문에서 검색되는 모든 숙어/단어 전수 추출)
   useEffect(() => {
     const freshPhrases = extractEnglishPhrases(passage.content);
     const existing = passage.phraseList || [];
@@ -92,6 +107,7 @@ export function PassageDetail({
 
     // 기존에 저장되어 있던 숙어 추가
     existing.forEach((p) => {
+      const ex = findSentenceInPassage(passage.content, passage.sentences, p.phrase);
       map.set(p.phrase.toLowerCase(), {
         id: `phrase-${p.phrase}`,
         phrase: p.phrase,
@@ -99,20 +115,21 @@ export function PassageDetail({
         meaning: p.meaning,
         difficulty: p.difficulty || 2,
         selected: true,
+        exampleSentence: ex || '',
       });
     });
 
-    // 400+개 정밀 사전에서 검출된 모든 숙어 전수 추가 (제한 없이 모두 추가)
+    // 400+개 정밀 사전에서 검출된 모든 숙어 전수 추가
     freshPhrases.forEach((p) => {
       map.set(p.phrase.toLowerCase(), p);
     });
 
     setExtractedPhrases(Array.from(map.values()));
 
-    // 단어도 개수 제한 없이 본문 내 모든 어휘 추출
+    // 단어도 본문 내 모든 어휘 추출
     const wList = extractEnglishWords(passage.content).map((w) => w.word);
     setExtractedWords(wList);
-  }, [passage.id, passage.content, passage.vocabularyList, passage.phraseList]);
+  }, [passage.id, passage.content, passage.vocabularyList, passage.phraseList, passage.sentences]);
 
   // 2. 사전에 없는 단어 백그라운드 인터넷 자동 검색
   useEffect(() => {
@@ -190,16 +207,18 @@ export function PassageDetail({
   };
 
   const handleAddWord = (word: string, meaning: string) => {
-    onAddWordToVocab?.(word, meaning);
+    const exSentence = findSentenceInPassage(passage.content, passage.sentences, word);
+    onAddWordToVocab?.(word, meaning, exSentence || undefined);
     setAddedWords((prev) => new Set(prev).add(word));
   };
 
   const handleAddPhrase = (phrase: string, meaning: string) => {
-    onAddPhraseToVocab?.(phrase, meaning);
+    const exSentence = findSentenceInPassage(passage.content, passage.sentences, phrase);
+    onAddPhraseToVocab?.(phrase, meaning, exSentence || undefined);
     setAddedPhrases((prev) => new Set(prev).add(phrase));
   };
 
-  // 숙어 전체 일괄 추가 (중복 등록 방지 필터링)
+  // 숙어 전체 일괄 추가 (중복 등록 방지 필터링 + 본문 실제 문장 예문 자동 포함)
   const handleBatchAddPhrases = () => {
     const unadded = extractedPhrases.filter(
       (p) => !registeredPhraseSet.has(p.phrase.toLowerCase()) && !addedPhrases.has(p.phrase)
@@ -210,10 +229,19 @@ export function PassageDetail({
       return;
     }
 
+    const items: PassagePhraseItem[] = unadded.map((p) => {
+      const exSentence = p.exampleSentence || findSentenceInPassage(passage.content, passage.sentences, p.phrase);
+      return {
+        phrase: p.phrase,
+        meaning: p.meaning,
+        exampleSentence: exSentence || undefined,
+      };
+    });
+
     if (onBatchAddPhrasesToVocab) {
-      onBatchAddPhrasesToVocab(unadded.map((p) => ({ phrase: p.phrase, meaning: p.meaning })));
+      onBatchAddPhrasesToVocab(items);
     } else {
-      unadded.forEach((p) => onAddPhraseToVocab?.(p.phrase, p.meaning));
+      items.forEach((p) => onAddPhraseToVocab?.(p.phrase, p.meaning, p.exampleSentence));
     }
 
     setAddedPhrases((prev) => {
@@ -223,7 +251,7 @@ export function PassageDetail({
     });
   };
 
-  // 단어 전체 일괄 추가 (중복 등록 방지 필터링)
+  // 단어 전체 일괄 추가 (중복 등록 방지 필터링 + 본문 실제 문장 예문 자동 포함)
   const handleBatchAddWords = () => {
     const unadded = extractedWords.filter(
       (w) => !registeredWordSet.has(w.toLowerCase()) && !addedWords.has(w)
@@ -234,19 +262,21 @@ export function PassageDetail({
       return;
     }
 
-    const items = unadded.map((w) => {
+    const items: PassageWordItem[] = unadded.map((w) => {
       const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
       const online = onlineMeaningMap[w];
+      const exSentence = findSentenceInPassage(passage.content, passage.sentences, w);
       return {
         word: w,
         meaning: dict?.meaning || online?.meaning || '사전 등록 필요',
+        exampleSentence: exSentence || undefined,
       };
     });
 
     if (onBatchAddWordsToVocab) {
       onBatchAddWordsToVocab(items);
     } else {
-      items.forEach((item) => onAddWordToVocab?.(item.word, item.meaning));
+      items.forEach((item) => onAddWordToVocab?.(item.word, item.meaning, item.exampleSentence));
     }
 
     setAddedWords((prev) => {

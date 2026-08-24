@@ -4,7 +4,7 @@
 
 import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
 import type { CreatePhraseInput, UpdatePhraseInput, SearchPhraseInput } from '../schemas/phraseSchemas';
-import { searchWordOnline, type WordSearchResult } from './dictionarySearch';
+import { searchWordOnline, isValidExampleForWord, type WordSearchResult } from './dictionarySearch';
 import {
   fetchAllPhrasesFromTurso,
   addPhraseToTurso,
@@ -91,7 +91,18 @@ export function getStoredPhrases(): PhraseWithItem[] {
       localStorage.setItem(STORAGE_KEY_PHRASE, JSON.stringify(INITIAL_PHRASES));
       return INITIAL_PHRASES;
     }
-    return JSON.parse(raw);
+    const parsed: PhraseWithItem[] = JSON.parse(raw);
+    // 무관하거나 잘못 연결된 예문 데이터 자동 클린업
+    return parsed.map((p) => {
+      if (p.exampleSentence && !isValidExampleForWord(p.exampleSentence, p.phrase)) {
+        return {
+          ...p,
+          exampleSentence: null,
+          exampleTranslation: null,
+        };
+      }
+      return p;
+    });
   } catch {
     return INITIAL_PHRASES;
   }
@@ -166,8 +177,8 @@ export async function addPhraseAction(
   }
 
   let finalMeaning = input.meaning.trim();
-  let finalEx = input.exampleSentence || null;
-  let finalExTrans = input.exampleTranslation || null;
+  let finalEx = input.exampleSentence && isValidExampleForWord(input.exampleSentence, input.phrase) ? input.exampleSentence.trim() : null;
+  let finalExTrans = finalEx ? (input.exampleTranslation?.trim() || null) : null;
   let finalSource = input.source || '네이버 영어사전';
 
   if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
@@ -175,8 +186,10 @@ export async function addPhraseAction(
       const searchResult = await searchWordOnline(input.phrase.trim());
       if (searchResult && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
         finalMeaning = searchResult.meaning;
-        if (!finalEx && searchResult.exampleSentence) finalEx = searchResult.exampleSentence;
-        if (!finalExTrans && searchResult.exampleTranslation) finalExTrans = searchResult.exampleTranslation;
+        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, input.phrase)) {
+          finalEx = searchResult.exampleSentence;
+          finalExTrans = searchResult.exampleTranslation || null;
+        }
         if (searchResult.source) finalSource = searchResult.source;
       }
     } catch {}
@@ -218,9 +231,16 @@ export async function updatePhraseAction(
   const idx = all.findIndex((p) => p.id === id);
   if (idx === -1) return { success: false, error: '숙어를 찾을 수 없습니다.' };
 
+  const targetPhrase = input.phrase || all[idx].phrase;
+  const sanitizedEx = input.exampleSentence !== undefined
+    ? (input.exampleSentence && isValidExampleForWord(input.exampleSentence, targetPhrase) ? input.exampleSentence : null)
+    : all[idx].exampleSentence;
+
   all[idx] = {
     ...all[idx],
     ...input,
+    exampleSentence: sanitizedEx,
+    exampleTranslation: sanitizedEx ? (input.exampleTranslation ?? all[idx].exampleTranslation) : null,
     updatedAt: new Date().toISOString(),
   };
   saveStoredPhrases(all);
@@ -304,12 +324,12 @@ export async function autoFillMissingPhrasesAction(): Promise<
       item.meaning === '의미 검색 필요' ||
       item.meaning === '뜻 미입력';
 
-    if (isMissing || !item.exampleSentence) {
+    if (isMissing) {
       try {
         const searchRes = await searchWordOnline(item.phrase);
         if (searchRes && searchRes.meaning && searchRes.meaning !== '의미 검색 필요') {
           item.meaning = searchRes.meaning;
-          if (!item.exampleSentence && searchRes.exampleSentence) {
+          if (!item.exampleSentence && searchRes.exampleSentence && isValidExampleForWord(searchRes.exampleSentence, item.phrase)) {
             item.exampleSentence = searchRes.exampleSentence;
             item.exampleTranslation = searchRes.exampleTranslation || item.exampleTranslation;
           }

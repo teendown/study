@@ -340,6 +340,31 @@ async function fetchFreeDictionary(cleanWord: string) {
 }
 
 /**
+ * 예문이 검색 대상 단어/숙어와 실제로 관련되어 있는지 엄격 검증
+ * 단어/숙어가 예문 속에 포함되어 있지 않으면 엉뚱한 예문으로 판단하여 폐기
+ */
+export function isValidExampleForWord(example: string, target: string): boolean {
+  if (!example || !target) return false;
+  const cleanEx = example.trim().toLowerCase();
+  const cleanTgt = target.trim().toLowerCase();
+  if (cleanEx.length < 5 || cleanTgt.length < 2) return false;
+
+  // 1. 숙어/구문인 경우 (공백 포함)
+  if (cleanTgt.includes(' ')) {
+    const words = cleanTgt.split(/\s+/).filter((w) => w.length > 1);
+    // 모든 주요 단어가 예문에 존재하는지 확인
+    return words.every((w) => {
+      const stem = w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/i, '') : w;
+      return cleanEx.includes(stem);
+    });
+  }
+
+  // 2. 단일 단어인 경우
+  const stem = cleanTgt.length > 4 ? cleanTgt.replace(/(?:ing|ed|es|s|ly|tion|ment)$/i, '') : cleanTgt;
+  return cleanEx.includes(cleanTgt) || cleanEx.includes(stem);
+}
+
+/**
  * 영단어/숙어의 뜻, 품사, 발음, 예문 등을 실시간으로 다단계 자동 검색합니다.
  * (기본 출처: 네이버 영어사전)
  */
@@ -354,13 +379,16 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   // 1. 1순위: 내장 표준 영한사전 고정밀 확인 (파생형/원형 포함 0ms 즉시 확인)
   const builtin = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
   if (builtin) {
+    const validEx = isValidExampleForWord(builtin.ex || '', cleanWord) ? (builtin.ex || '') : '';
+    const validExTrans = validEx ? (builtin.exTrans || '') : '';
+
     return {
       word: cleanWord,
       meaning: builtin.meaning,
       partOfSpeech: normalizePartOfSpeech(builtin.pos, cleanWord),
       pronunciation: builtin.pron || convertToKoreanPronunciation('', cleanWord),
-      exampleSentence: builtin.ex || '',
-      exampleTranslation: builtin.exTrans || '',
+      exampleSentence: validEx,
+      exampleTranslation: validExTrans,
       synonyms: builtin.syn || '',
       antonyms: builtin.ant || '',
       source: '네이버 영어사전',
@@ -394,8 +422,10 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
         meaning = wiktResult.meaning;
         if (wiktResult.partOfSpeech) partOfSpeech = wiktResult.partOfSpeech;
         if (wiktResult.pronunciation) pronunciation = wiktResult.pronunciation;
-        if (wiktResult.exampleSentence) exampleSentence = wiktResult.exampleSentence;
-        if (wiktResult.exampleTranslation) exampleTranslation = wiktResult.exampleTranslation;
+        if (wiktResult.exampleSentence && isValidExampleForWord(wiktResult.exampleSentence, cleanWord)) {
+          exampleSentence = wiktResult.exampleSentence;
+          exampleTranslation = wiktResult.exampleTranslation || '';
+        }
         source = '네이버 영어사전';
       }
     } catch {}
@@ -416,13 +446,21 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     if (freeDict) {
       if (!pronunciation && freeDict.pronunciation) pronunciation = freeDict.pronunciation;
       if ((!partOfSpeech || partOfSpeech === 'n.') && freeDict.partOfSpeech) partOfSpeech = freeDict.partOfSpeech;
-      if (!exampleSentence && freeDict.exampleSentence) exampleSentence = freeDict.exampleSentence;
+      if (!exampleSentence && freeDict.exampleSentence && isValidExampleForWord(freeDict.exampleSentence, cleanWord)) {
+        exampleSentence = freeDict.exampleSentence;
+      }
       if (!synonyms && freeDict.synonyms) synonyms = freeDict.synonyms;
       if (!antonyms && freeDict.antonyms) antonyms = freeDict.antonyms;
     }
   } catch {}
 
-  // 6. 예문이 있는데 예문 해석이 없는 경우 자동 번역
+  // 6. 예문 유효성 최종 검증 (대상 단어가 포함되지 않은 예문은 철저히 제거하여 빈칸으로 유지)
+  if (exampleSentence && !isValidExampleForWord(exampleSentence, cleanWord)) {
+    exampleSentence = '';
+    exampleTranslation = '';
+  }
+
+  // 7. 유효한 예문이 있는데 번역이 없는 경우에만 자동 번역
   if (exampleSentence && !exampleTranslation) {
     const transEx = await translateToKorean(exampleSentence);
     if (transEx) {
@@ -445,3 +483,4 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     naverDictUrl,
   };
 }
+

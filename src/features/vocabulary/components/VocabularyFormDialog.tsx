@@ -420,7 +420,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-example">예문</Label>
               <Textarea
                 id="form-example"
-                placeholder="An apple a day keeps the doctor away."
+                placeholder="해당 단어가 포함된 예문을 입력하세요 (없으면 빈칸 유지)..."
                 value={exampleSentence}
                 onChange={(e) => setExampleSentence(e.target.value)}
                 rows={2}
@@ -432,7 +432,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-example-trans">예문 해석</Label>
               <Input
                 id="form-example-trans"
-                placeholder="하루 사과 한 개는 의사를 멀리한다."
+                placeholder="예문의 한국어 해석을 입력하세요 (선택)..."
                 value={exampleTranslation}
                 onChange={(e) => setExampleTranslation(e.target.value)}
               />

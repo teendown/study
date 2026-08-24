@@ -110,3 +110,72 @@ export function splitPassageIntoSentences(passageText: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 3);
 }
+
+/**
+ * 4. 지문 및 문장 목록에서 특정 단어/숙어가 사용된 정확한 실제 문장 탐색
+ * 시제 변화(ed, ing, s/es), 수일치, 복수형 및 숙어 패턴 매칭 지원
+ */
+export function findSentenceInPassage(
+  passageContent: string,
+  sentences: string[] | undefined,
+  targetWordOrPhrase: string
+): string {
+  if (!targetWordOrPhrase) return '';
+  const cleanTarget = targetWordOrPhrase.trim();
+  if (!cleanTarget) return '';
+
+  const sentenceList = sentences && sentences.length > 0 ? sentences : splitPassageIntoSentences(passageContent);
+  if (sentenceList.length === 0) return '';
+
+  // 1. 구문/숙어인 경우 (공백 포함)
+  if (cleanTarget.includes(' ')) {
+    const words = cleanTarget.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    // 각 단어 사이에 유연한 공백/단어 매칭
+    const phrasePattern = new RegExp(`\\b${words.join('\\s+(?:[a-zA-Z]+\\s+)?')}\\b`, 'i');
+    for (const sentence of sentenceList) {
+      if (phrasePattern.test(sentence)) {
+        return sentence.trim();
+      }
+    }
+  } else {
+    // 2. 단일 단어인 경우 (어간 및 파생/시제 변형 매칭: play -> plays, played, playing)
+    const escaped = cleanTarget.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // 어간 추출 (끝의 e, y, ed, ing 등 고려)
+    const stem = cleanTarget.length > 4 ? cleanTarget.replace(/(?:ing|ed|es|s|ly|tion|ment)$/i, '') : cleanTarget;
+    const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // 1차: 정확한 단어 경계 매칭
+    const exactRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+    for (const sentence of sentenceList) {
+      if (exactRegex.test(sentence)) {
+        return sentence.trim();
+      }
+    }
+
+    // 2차: 어간 기반 파생형 단어 경계 매칭
+    const stemRegex = new RegExp(`\\b${escapedStem}[a-z]*\\b`, 'i');
+    for (const sentence of sentenceList) {
+      if (stemRegex.test(sentence)) {
+        return sentence.trim();
+      }
+    }
+  }
+
+  // 3. 문장 목록에서 못 찾았으나 본문 내용에 포함되어 있는 경우
+  if (passageContent && cleanTarget.length >= 2) {
+    const rawIndex = passageContent.toLowerCase().indexOf(cleanTarget.toLowerCase());
+    if (rawIndex !== -1) {
+      // 해당 단어가 포함된 문장 구간 슬라이싱
+      const before = passageContent.slice(0, rawIndex);
+      const after = passageContent.slice(rawIndex);
+      const start = Math.max(0, before.lastIndexOf('. ') + 2, before.lastIndexOf('\n') + 1);
+      const endMatch = after.search(/[.!?](?:\s+|$)/);
+      const end = endMatch !== -1 ? rawIndex + endMatch + 1 : passageContent.length;
+      const extracted = passageContent.slice(start, end).trim();
+      if (extracted.length > 5) return extracted;
+    }
+  }
+
+  return '';
+}
+

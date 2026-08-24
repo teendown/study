@@ -463,6 +463,8 @@ export interface ExtractedPhraseResult {
   meaning: string;
   difficulty: number;
   selected?: boolean;
+  exampleSentence?: string;
+  exampleTranslation?: string;
 }
 
 /**
@@ -486,12 +488,19 @@ function normalizeTextForPhraseSearch(rawText: string): string {
 
 /**
  * 지문/OCR 텍스트에서 포함된 모든 숙어/연어/구동사를 고정밀 추출 (무제한)
+ * 매칭된 숙어가 속한 본문 실제 문장(exampleSentence) 자동 결합
  */
 export function extractEnglishPhrases(rawText: string): ExtractedPhraseResult[] {
   if (!rawText || typeof rawText !== 'string') return [];
 
   const cleanText = normalizeTextForPhraseSearch(rawText);
   if (!cleanText) return [];
+
+  // 문장 목록 미리 분리
+  const sentences = cleanText
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 3);
 
   const results: ExtractedPhraseResult[] = [];
   const foundPhrases = new Set<string>();
@@ -502,6 +511,16 @@ export function extractEnglishPhrases(rawText: string): ExtractedPhraseResult[] 
     const match = cleanText.match(entry.pattern);
     if (match) {
       foundPhrases.add(entry.phrase.toLowerCase());
+
+      // 매칭된 숙어가 속한 본문 실제 문장 찾기
+      let enclosingSentence = '';
+      for (const sent of sentences) {
+        if (entry.pattern.test(sent)) {
+          enclosingSentence = sent;
+          break;
+        }
+      }
+
       results.push({
         id: `phrase-${entry.phrase.replace(/\s+/g, '-')}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         phrase: entry.phrase,
@@ -509,6 +528,7 @@ export function extractEnglishPhrases(rawText: string): ExtractedPhraseResult[] 
         meaning: entry.meaning,
         difficulty: entry.difficulty,
         selected: true,
+        exampleSentence: enclosingSentence || '',
       });
     }
   }
@@ -516,3 +536,4 @@ export function extractEnglishPhrases(rawText: string): ExtractedPhraseResult[] 
   // 매칭된 문맥 길이 순서로 정렬 (더 구체적인 숙어가 상단에 오도록)
   return results.sort((a, b) => b.phrase.length - a.phrase.length);
 }
+

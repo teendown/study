@@ -352,7 +352,7 @@ export function PhraseFormDialog({
               <Label htmlFor="form-phrase-example">예문</Label>
               <Textarea
                 id="form-phrase-example"
-                placeholder="I look forward to hearing from you."
+                placeholder="해당 숙어가 포함된 예문을 입력하세요 (없으면 빈칸 유지)..."
                 value={exampleSentence}
                 onChange={(e) => setExampleSentence(e.target.value)}
                 rows={2}
@@ -364,7 +364,7 @@ export function PhraseFormDialog({
               <Label htmlFor="form-phrase-trans">예문 해석</Label>
               <Input
                 id="form-phrase-trans"
-                placeholder="당신의 소식을 듣기를 고대합니다."
+                placeholder="예문의 한국어 해석을 입력하세요 (선택)..."
                 value={exampleTranslation}
                 onChange={(e) => setExampleTranslation(e.target.value)}
               />

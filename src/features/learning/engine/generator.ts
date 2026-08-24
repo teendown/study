@@ -21,9 +21,20 @@ function shuffleArray<T>(array: T[]): T[] {
 /**
  * 단어 철자에 빈칸 마스킹을 적용합니다.
  */
-function createMaskedWord(word: string): { masked: string; missing: string } {
+export function createMaskedWord(word: string): { masked: string; missing: string } {
+  if (!word) return { masked: '', missing: '' };
   if (word.length <= 3) {
-    return { masked: word[0] + ' _ ' + word.slice(2), missing: word[1] };
+    return { masked: word[0] + ' _ ' + word.slice(2), missing: word[1] || word };
+  }
+
+  // 여러 단어로 이루어진 숙어인 경우 각 단어별 마스킹
+  if (word.includes(' ')) {
+    const subWords = word.split(' ');
+    const maskedParts = subWords.map((sw) => {
+      if (sw.length <= 2) return sw;
+      return sw[0] + ' ' + '_ '.repeat(Math.max(1, sw.length - 2)).trim() + ' ' + sw[sw.length - 1];
+    });
+    return { masked: maskedParts.join('   '), missing: word };
   }
 
   const chars = word.split('');
@@ -43,7 +54,7 @@ function createMaskedWord(word: string): { masked: string; missing: string } {
  * 숙어에서 특정 단어(전치사/부사)를 빈칸으로 만듭니다. (설계서 섹션 9.8)
  * 예: "look forward to" -> "look forward ______" (정답: to)
  */
-function createPhraseBlankQuestion(phrase: string): { maskedPhrase: string; targetWord: string } {
+export function createPhraseBlankQuestion(phrase: string): { maskedPhrase: string; targetWord: string } {
   const words = phrase.split(' ');
   if (words.length <= 1) {
     return { maskedPhrase: `${phrase} ______`, targetWord: phrase };
@@ -53,7 +64,7 @@ function createPhraseBlankQuestion(phrase: string): { maskedPhrase: string; targ
   const targetIdx = words.length - 1;
   const targetWord = words[targetIdx];
   const maskedPhrase = words
-    .map((w, idx) => (idx === targetIdx ? '______' : w))
+    .map((w, i) => (i === targetIdx ? '______' : w))
     .join(' ');
 
   return { maskedPhrase, targetWord };

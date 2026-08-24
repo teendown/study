@@ -18,6 +18,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import type { GeneratedQuestion, AnswerRecord, SessionSummary } from '../types';
 import type { StudyMode } from '@/types';
+import { createMaskedWord } from '../engine/generator';
 
 interface StudySessionProps {
   questions: GeneratedQuestion[];
@@ -52,7 +53,7 @@ export function StudySession({
 
   const currentQ = questions[currentIndex];
   const total = questions.length;
-  const progressPercent = ((currentIndex + 1) / total) * 100;
+  const progressPercent = total > 0 ? ((currentIndex + 1) / total) * 100 : 0;
 
   // 단어 발음 TTS
   const handleSpeak = (text: string) => {
@@ -85,7 +86,6 @@ export function StudySession({
     if (timeLeft === null || isAnswered) return;
 
     if (timeLeft <= 0) {
-      // 시간 초과 -> 오답 처리
       handleAnswerSubmission('', false);
       return;
     }
@@ -99,7 +99,7 @@ export function StudySession({
 
   // 답변 제출 처리 함수
   const handleAnswerSubmission = (answerGiven: string, directCorrectness?: boolean) => {
-    if (isAnswered) return;
+    if (isAnswered || !currentQ) return;
 
     const responseTimeMs = Date.now() - startTimeRef.current;
     let correct = false;
@@ -109,7 +109,9 @@ export function StudySession({
     } else {
       const cleanGiven = answerGiven.trim().toLowerCase();
       const cleanAnswer = currentQ.correctAnswer.trim().toLowerCase();
-      correct = cleanGiven === cleanAnswer;
+      correct =
+        cleanGiven === cleanAnswer ||
+        cleanGiven.replace(/\s+/g, '') === cleanAnswer.replace(/\s+/g, '');
     }
 
     setIsAnswered(true);
@@ -122,9 +124,9 @@ export function StudySession({
       setCombo(nextCombo);
       if (nextCombo > maxCombo) setMaxCombo(nextCombo);
 
-      gainedXp = 10; // 기본 XP
-      if (responseTimeMs < 3000) gainedXp += 5; // 빠른 응답 보너스
-      if (nextCombo >= 3) gainedXp += 5; // 콤보 보너스
+      gainedXp = 10;
+      if (responseTimeMs < 3000) gainedXp += 5;
+      if (nextCombo >= 3) gainedXp += 5;
 
       setXpEarned((prev) => prev + gainedXp);
     } else {
@@ -142,6 +144,7 @@ export function StudySession({
       correctAnswer: currentQ.correctAnswer,
       responseTimeMs,
     };
+
     setAnswers((prev) => [...prev, record]);
   };
 
@@ -165,17 +168,14 @@ export function StudySession({
     if (currentIndex + 1 < total) {
       setCurrentIndex((prev) => prev + 1);
     } else {
-      // 모든 문제 완료 -> 세션 요약 생성
       const totalTimeSec = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-      const correctCount = answers.filter((a) => a.isCorrect).length + (isCorrect ? 1 : 0);
+      const correctCount = answers.filter((a) => a.isCorrect).length;
       const wrongCount = total - correctCount;
-      const accuracy = Math.round((correctCount / total) * 100);
+      const accuracy = total > 0 ? Math.round((correctCount / total) * 100) : 0;
 
-      // 틀린 단어 목록
       const wrongWordIds = new Set(
         answers.filter((a) => !a.isCorrect).map((a) => a.learningItemId)
       );
-      if (isCorrect === false) wrongWordIds.add(currentQ.learningItemId);
 
       const wrongItems = questions
         .map((q) => q.word)
@@ -196,21 +196,23 @@ export function StudySession({
     }
   };
 
-  if (!currentQ) return null;
+  if (!currentQ) {
+    return null;
+  }
 
   return (
-    <div className="max-w-xl mx-auto space-y-4">
-      {/* 상단 바: 진행률, 타이머, 콤보, XP */}
+    <div className="max-w-xl mx-auto space-y-4 py-4 animate-in fade-in duration-200">
+      {/* 상단 헤더: 진행률, 콤보, 타이머 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs font-semibold">
+        <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">
-              문제 <span className="text-foreground">{currentIndex + 1}</span> / {total}
+            <span>
+              문제 <strong className="text-foreground text-sm">{currentIndex + 1}</strong> / {total}
             </span>
-            {combo >= 2 && (
-              <Badge className="bg-gradient-to-r from-orange-500 to-amber-500 text-white gap-1 animate-combo">
-                <Flame className="h-3 w-3 fill-white" />
-                {combo} COMBO!
+            {combo > 1 && (
+              <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1 text-xs">
+                <Flame className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
+                {combo} 콤보!
               </Badge>
             )}
           </div>
@@ -218,15 +220,15 @@ export function StudySession({
           <div className="flex items-center gap-3">
             {timeLeft !== null && (
               <div
-                className={`flex items-center gap-1 font-bold ${
-                  timeLeft <= 3 ? 'text-destructive animate-pulse' : 'text-amber-500'
+                className={`flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded-full border ${
+                  timeLeft <= 3 ? 'text-destructive border-destructive/50 bg-destructive/10 animate-pulse' : 'text-primary border-primary/30'
                 }`}
               >
-                <Timer className="h-4 w-4" />
-                {timeLeft}s
+                <Timer className="h-3 w-3" />
+                <span>{timeLeft}s</span>
               </div>
             )}
-            <span className="text-sq-xp font-bold">+{xpEarned} XP</span>
+            <span className="text-emerald-600 font-bold">+{xpEarned} XP</span>
             <Button variant="ghost" size="sm" onClick={onExit} className="h-7 px-2 text-xs text-muted-foreground">
               종료
             </Button>
@@ -246,13 +248,15 @@ export function StudySession({
                 ? '객관식 문제'
                 : currentQ.type === 'fill_blank'
                 ? '빈칸 완성'
+                : currentQ.type === 'sentence_completion'
+                ? '문장 완성'
                 : '스펠링 입력'}
             </p>
             <h3 className="text-lg sm:text-xl font-bold leading-snug">
               {currentQ.questionText}
             </h3>
 
-            {/* 영단어 강조 및 발음 듣기 */}
+            {/* 1. 객관식 (단어 -> 뜻 선택인 경우 영어 단어 강조) */}
             {currentQ.type === 'multiple_choice' && currentQ.correctAnswer === currentQ.word.meaning && (
               <div className="flex items-center gap-2 p-3 rounded-xl bg-primary/5 border border-primary/10 mt-2">
                 <span className="text-2xl font-black tracking-wide text-primary">
@@ -267,9 +271,77 @@ export function StudySession({
                   <Volume2 className="h-4 w-4" />
                 </Button>
                 {currentQ.word.partOfSpeech && (
-                  <span className="text-xs text-muted-foreground ml-auto font-semibold">
+                  <span className="text-xs text-muted-foreground ml-auto font-semibold bg-muted px-2 py-0.5 rounded">
                     {currentQ.word.partOfSpeech}
                   </span>
+                )}
+              </div>
+            )}
+
+            {/* 2. ⚡ 빈칸 완성 (fill_blank) 전용 시각적 카드 (한국어 뜻 + 마스킹된 빈칸 철자 or 예문 문장) */}
+            {currentQ.type === 'fill_blank' && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border-2 border-primary/20 space-y-3 mt-2 shadow-xs">
+                <div className="flex items-center justify-between gap-2 border-b border-primary/10 pb-2">
+                  <span className="text-xs font-bold text-primary flex items-center gap-1">
+                    💡 맞혀야 할 단어의 뜻
+                  </span>
+                  {currentQ.word.partOfSpeech && (
+                    <span className="text-xs bg-primary/10 text-primary font-semibold px-2 py-0.5 rounded-md">
+                      {currentQ.word.partOfSpeech}
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+                  {currentQ.word.meaning}
+                </p>
+
+                {/* 예문이 있고 단어가 포함되어 있다면 예문 속 빈칸 표시 */}
+                {currentQ.word.exampleSentence && currentQ.word.exampleSentence.toLowerCase().includes(currentQ.word.word.toLowerCase()) ? (
+                  <div className="p-3 rounded-xl bg-card border text-sm sm:text-base font-medium leading-relaxed text-foreground/90 space-y-1">
+                    <p className="text-[11px] text-muted-foreground font-semibold">📖 예문 속 빈칸</p>
+                    <p className="font-semibold text-primary">
+                      {currentQ.word.exampleSentence.replace(
+                        new RegExp(`\\b${currentQ.word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-z]*\\b`, 'gi'),
+                        ' [ ______ ] '
+                      )}
+                    </p>
+                    {currentQ.word.exampleTranslation && (
+                      <p className="text-xs text-muted-foreground italic pt-0.5">
+                        해석: {currentQ.word.exampleTranslation}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  /* 예문이 없는 경우 마스킹된 철자 힌트 박스 표시 (예: w _ _ _ y) */
+                  <div className="p-3 rounded-xl bg-card border flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground font-semibold">철자 힌트:</span>
+                    <div className="font-mono text-lg sm:text-xl font-black text-primary tracking-widest bg-muted/60 px-3.5 py-1 rounded-lg border">
+                      {createMaskedWord(currentQ.word.word).masked}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. 직접 타이핑 / 스펠링 입력 (typing) 전용 카드 */}
+            {currentQ.type === 'typing' && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-muted/30 border space-y-2 mt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-muted-foreground">한국어 뜻</span>
+                  {currentQ.word.partOfSpeech && (
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">
+                      {currentQ.word.partOfSpeech}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-foreground">
+                  {currentQ.word.meaning}
+                </p>
+                {currentQ.word.exampleTranslation && (
+                  <p className="text-xs text-muted-foreground italic">
+                    {currentQ.word.exampleTranslation}
+                  </p>
                 )}
               </div>
             )}

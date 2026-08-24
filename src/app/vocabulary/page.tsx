@@ -393,16 +393,21 @@ export default function VocabularyPage() {
     }
   };
 
-  // 지문에서 단어 바로 단어장에 추가
-  const handleAddWordFromPassage = async (word: string, meaning: string) => {
+  // 지문에서 단어 바로 단어장에 추가 (지문 실제 예문 연동)
+  const handleAddWordFromPassage = async (
+    word: string,
+    meaning: string,
+    exampleSentence?: string,
+    exampleTranslation?: string
+  ) => {
     try {
       await addVocabularyAction({
         word,
         meaning,
         partOfSpeech: 'n.',
         pronunciation: '',
-        exampleSentence: '',
-        exampleTranslation: '',
+        exampleSentence: exampleSentence || '',
+        exampleTranslation: exampleTranslation || '',
         synonyms: '',
         antonyms: '',
         difficulty: 2,
@@ -412,14 +417,19 @@ export default function VocabularyPage() {
     } catch {}
   };
 
-  // 지문에서 숙어 바로 숙어장에 추가
-  const handleAddPhraseFromPassage = async (phrase: string, meaning: string) => {
+  // 지문에서 숙어 바로 숙어장에 추가 (지문 실제 예문 연동)
+  const handleAddPhraseFromPassage = async (
+    phrase: string,
+    meaning: string,
+    exampleSentence?: string,
+    exampleTranslation?: string
+  ) => {
     try {
       await addPhraseAction({
         phrase,
         meaning,
-        exampleSentence: '',
-        exampleTranslation: '',
+        exampleSentence: exampleSentence || '',
+        exampleTranslation: exampleTranslation || '',
         difficulty: 2,
         source: selectedPassage ? `${selectedPassage.title} 숙어` : '지문 추출 숙어',
       }, true);
@@ -427,8 +437,10 @@ export default function VocabularyPage() {
     } catch {}
   };
 
-  // 지문에서 단어 일괄 추가
-  const handleBatchAddWordsFromPassage = async (items: Array<{ word: string; meaning: string }>) => {
+  // 지문에서 단어 일괄 추가 (지문 실제 예문 연동)
+  const handleBatchAddWordsFromPassage = async (
+    items: Array<{ word: string; meaning: string; exampleSentence?: string; exampleTranslation?: string }>
+  ) => {
     for (const item of items) {
       try {
         await addVocabularyAction({
@@ -436,8 +448,8 @@ export default function VocabularyPage() {
           meaning: item.meaning,
           partOfSpeech: 'n.',
           pronunciation: '',
-          exampleSentence: '',
-          exampleTranslation: '',
+          exampleSentence: item.exampleSentence || '',
+          exampleTranslation: item.exampleTranslation || '',
           synonyms: '',
           antonyms: '',
           difficulty: 2,
@@ -449,15 +461,17 @@ export default function VocabularyPage() {
     alert(`총 ${items.length}개의 단어가 단어장에 추가되었습니다! 📚`);
   };
 
-  // 지문에서 숙어 일괄 추가
-  const handleBatchAddPhrasesFromPassage = async (items: Array<{ phrase: string; meaning: string }>) => {
+  // 지문에서 숙어 일괄 추가 (지문 실제 예문 연동)
+  const handleBatchAddPhrasesFromPassage = async (
+    items: Array<{ phrase: string; meaning: string; exampleSentence?: string; exampleTranslation?: string }>
+  ) => {
     for (const item of items) {
       try {
         await addPhraseAction({
           phrase: item.phrase,
           meaning: item.meaning,
-          exampleSentence: '',
-          exampleTranslation: '',
+          exampleSentence: item.exampleSentence || '',
+          exampleTranslation: item.exampleTranslation || '',
           difficulty: 2,
           source: selectedPassage ? `${selectedPassage.title} 숙어` : '지문 추출 숙어',
         }, true);
@@ -466,6 +480,7 @@ export default function VocabularyPage() {
     await loadPhrases();
     alert(`총 ${items.length}개의 숙어가 숙어장에 추가되었습니다! 🔖`);
   };
+
 
   return (
     <div className="space-y-6">

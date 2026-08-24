@@ -5,8 +5,7 @@
 
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
 import type { CreateVocabularyInput, UpdateVocabularyInput, SearchVocabularyInput } from '../schemas';
-import type { WordSearchResult } from './dictionarySearch';
-import { searchWordOnline } from './dictionarySearch';
+import { searchWordOnline, isValidExampleForWord, type WordSearchResult } from './dictionarySearch';
 import {
   fetchAllVocabulariesFromTurso,
   addVocabularyToTurso,
@@ -123,7 +122,18 @@ export function getStoredVocabs(): VocabularyWithItem[] {
       localStorage.setItem(STORAGE_KEY_VOCAB, JSON.stringify(INITIAL_VOCABULARIES));
       return INITIAL_VOCABULARIES;
     }
-    return JSON.parse(raw);
+    const parsed: VocabularyWithItem[] = JSON.parse(raw);
+    // 무관하거나 잘못 연결된 예문 데이터 자동 클린업
+    return parsed.map((v) => {
+      if (v.exampleSentence && !isValidExampleForWord(v.exampleSentence, v.word)) {
+        return {
+          ...v,
+          exampleSentence: null,
+          exampleTranslation: null,
+        };
+      }
+      return v;
+    });
   } catch {
     return INITIAL_VOCABULARIES;
   }
@@ -233,8 +243,8 @@ export async function addVocabularyAction(
   let finalMeaning = input.meaning.trim();
   let finalPos = input.partOfSpeech || null;
   let finalPron = input.pronunciation || null;
-  let finalEx = input.exampleSentence || null;
-  let finalExTrans = input.exampleTranslation || null;
+  let finalEx = input.exampleSentence && isValidExampleForWord(input.exampleSentence, input.word) ? input.exampleSentence.trim() : null;
+  let finalExTrans = finalEx ? (input.exampleTranslation?.trim() || null) : null;
   let finalSyn = input.synonyms || null;
   let finalAnt = input.antonyms || null;
   let finalSource = input.source || '네이버 영어사전';
@@ -247,8 +257,10 @@ export async function addVocabularyAction(
         finalMeaning = searchResult.meaning;
         if (!finalPos && searchResult.partOfSpeech) finalPos = searchResult.partOfSpeech;
         if (!finalPron && searchResult.pronunciation) finalPron = searchResult.pronunciation;
-        if (!finalEx && searchResult.exampleSentence) finalEx = searchResult.exampleSentence;
-        if (!finalExTrans && searchResult.exampleTranslation) finalExTrans = searchResult.exampleTranslation;
+        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, input.word)) {
+          finalEx = searchResult.exampleSentence;
+          finalExTrans = searchResult.exampleTranslation || null;
+        }
         if (!finalSyn && searchResult.synonyms) finalSyn = searchResult.synonyms;
         if (!finalAnt && searchResult.antonyms) finalAnt = searchResult.antonyms;
         if (searchResult.source) finalSource = searchResult.source;
@@ -299,13 +311,18 @@ export async function updateVocabularyAction(
   const idx = all.findIndex((v) => v.id === id);
   if (idx === -1) return { success: false, error: '단어를 찾을 수 없습니다.' };
 
+  const targetWord = input.word || all[idx].word;
+  const sanitizedEx = input.exampleSentence !== undefined
+    ? (input.exampleSentence && isValidExampleForWord(input.exampleSentence, targetWord) ? input.exampleSentence : null)
+    : all[idx].exampleSentence;
+
   const updated: VocabularyWithItem = {
     ...all[idx],
     ...input,
     partOfSpeech: input.partOfSpeech ?? all[idx].partOfSpeech,
     pronunciation: input.pronunciation ?? all[idx].pronunciation,
-    exampleSentence: input.exampleSentence ?? all[idx].exampleSentence,
-    exampleTranslation: input.exampleTranslation ?? all[idx].exampleTranslation,
+    exampleSentence: sanitizedEx,
+    exampleTranslation: sanitizedEx ? (input.exampleTranslation ?? all[idx].exampleTranslation) : null,
     synonyms: input.synonyms ?? all[idx].synonyms,
     antonyms: input.antonyms ?? all[idx].antonyms,
     source: input.source ?? all[idx].source,
@@ -320,11 +337,11 @@ export async function updateVocabularyAction(
     console.warn('Background Turso sync failed for updateVocabulary:', err);
   });
 
-  return { success: true };
+  return { success: true, data: undefined };
 }
 
 /**
- * 단어 단일 삭제
+ * 단어 삭제
  */
 export async function deleteVocabularyAction(id: string): Promise<ActionResult> {
   const all = getStoredVocabs();
@@ -339,7 +356,7 @@ export async function deleteVocabularyAction(id: string): Promise<ActionResult> 
     console.warn('Background Turso sync failed for deleteVocabulary:', err);
   });
 
-  return { success: true };
+  return { success: true, data: undefined };
 }
 
 /**
@@ -363,9 +380,9 @@ export async function batchDeleteVocabulariesAction(
 }
 
 /**
- * 저장된 단어 중 뜻이나 정보가 누락된 단어들을 자동으로 검색하여 채워넣기 (단어 자동 치유 & 보강)
+ * 저장된 단어 중 뜻이 누락된 항목 일괄 자동 채우기
  */
-export async function autoFillMissingVocabulariesAction(): Promise<
+export async function autoFillMissingVocabAction(): Promise<
   ActionResult<{ updatedCount: number; totalChecked: number }>
 > {
   const all = getStoredVocabs();
@@ -380,7 +397,7 @@ export async function autoFillMissingVocabulariesAction(): Promise<
       item.meaning === '의미 검색 필요' ||
       item.meaning === '뜻 미입력';
 
-    const isInfoIncomplete = !item.partOfSpeech || !item.pronunciation || !item.exampleSentence;
+    const isInfoIncomplete = !item.partOfSpeech || !item.pronunciation;
 
     if (isMeaningMissing || isInfoIncomplete) {
       try {
@@ -399,7 +416,7 @@ export async function autoFillMissingVocabulariesAction(): Promise<
             item.pronunciation = searchResult.pronunciation;
             changed = true;
           }
-          if (!item.exampleSentence && searchResult.exampleSentence) {
+          if (!item.exampleSentence && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, item.word)) {
             item.exampleSentence = searchResult.exampleSentence;
             item.exampleTranslation = searchResult.exampleTranslation || item.exampleTranslation;
             changed = true;
@@ -440,7 +457,11 @@ export async function autoFillMissingVocabulariesAction(): Promise<
   return { success: true, data: { updatedCount, totalChecked: all.length } };
 }
 
+// 기존 명칭 하위 호환성 유지
+export const autoFillMissingVocabulariesAction = autoFillMissingVocabAction;
+
 export * from './phraseActions';
 export * from './passageActions';
 export * from './dictionarySearch';
 export * from './tursoVocabService';
+
