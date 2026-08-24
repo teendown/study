@@ -8,6 +8,7 @@ import type { VocabularyWithItem } from '../types';
 import type { PhraseWithItem } from '../types/phraseTypes';
 import type { CreateVocabularyInput, UpdateVocabularyInput } from '../schemas';
 import type { CreatePhraseInput, UpdatePhraseInput } from '../schemas/phraseSchemas';
+import { cleanMeaningAndExtractExample } from './dictionarySearch';
 
 const TURSO_URL =
   process.env.NEXT_PUBLIC_TURSO_DATABASE_URL ||
@@ -116,6 +117,9 @@ export async function addVocabularyToTurso(
     const client = getTursoClient();
     const subjectId = await ensureEnglishSubject(client);
 
+    const { meaning: cleanM, exampleSentence: cleanEx, exampleTranslation: cleanExTrans } =
+      cleanMeaningAndExtractExample(item.meaning, item.word, item.exampleSentence || undefined, item.exampleTranslation || undefined);
+
     // 1. learning_items 생성
     await client.execute({
       sql: `INSERT OR REPLACE INTO learning_items (id, subject_id, type, title, difficulty, grade, source, created_at, updated_at) VALUES (?, ?, 'vocabulary', ?, ?, ?, ?, ?, ?)`,
@@ -138,12 +142,12 @@ export async function addVocabularyToTurso(
         item.id,
         item.learningItemId,
         item.word,
-        item.meaning,
+        cleanM || item.meaning,
         item.partOfSpeech,
         item.pronunciation,
         item.audioUrl,
-        item.exampleSentence,
-        item.exampleTranslation,
+        cleanEx || item.exampleSentence,
+        cleanEx ? (cleanExTrans || item.exampleTranslation) : null,
         item.synonyms,
         item.antonyms,
         item.frequency,
@@ -178,8 +182,18 @@ export async function updateVocabularyInTurso(
       args.push(input.word);
     }
     if (input.meaning !== undefined) {
+      const { meaning: cleanM, exampleSentence: cleanEx, exampleTranslation: cleanExTrans } =
+        cleanMeaningAndExtractExample(input.meaning, input.word || '', input.exampleSentence, input.exampleTranslation);
       setClauses.push('meaning = ?');
-      args.push(input.meaning);
+      args.push(cleanM);
+      if (cleanEx && input.exampleSentence === undefined) {
+        setClauses.push('example_sentence = ?');
+        args.push(cleanEx);
+      }
+      if (cleanExTrans && input.exampleTranslation === undefined) {
+        setClauses.push('example_translation = ?');
+        args.push(cleanExTrans);
+      }
     }
     if (input.partOfSpeech !== undefined) {
       setClauses.push('part_of_speech = ?');
@@ -325,6 +339,9 @@ export async function addPhraseToTurso(item: PhraseWithItem): Promise<boolean> {
     const client = getTursoClient();
     const subjectId = await ensureEnglishSubject(client);
 
+    const { meaning: cleanM, exampleSentence: cleanEx, exampleTranslation: cleanExTrans } =
+      cleanMeaningAndExtractExample(item.meaning, item.phrase, item.exampleSentence || undefined, item.exampleTranslation || undefined);
+
     await client.execute({
       sql: `INSERT OR REPLACE INTO learning_items (id, subject_id, type, title, difficulty, grade, source, created_at, updated_at) VALUES (?, ?, 'phrase', ?, ?, ?, ?, ?, ?)`,
       args: [
@@ -345,9 +362,9 @@ export async function addPhraseToTurso(item: PhraseWithItem): Promise<boolean> {
         item.id,
         item.learningItemId,
         item.phrase,
-        item.meaning,
-        item.exampleSentence,
-        item.exampleTranslation,
+        cleanM || item.meaning,
+        cleanEx || item.exampleSentence,
+        cleanEx ? (cleanExTrans || item.exampleTranslation) : null,
         item.difficulty,
         item.createdAt,
         item.updatedAt,

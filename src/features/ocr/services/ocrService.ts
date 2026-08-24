@@ -6,7 +6,7 @@
 import { createWorker } from 'tesseract.js';
 import { extractEnglishWords, type ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
-import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
+import { searchWordOnline, sanitizeMeaningText } from '@/features/vocabulary/services/dictionarySearch';
 import { preprocessImageForOcr } from '@/lib/ocr/imagePreprocessor';
 import { reconstructPassageText, splitPassageIntoSentences } from '@/lib/ocr/textCleaner';
 
@@ -109,12 +109,23 @@ export async function recognizeAndExtractWords({
     }
   }
 
+  // 최종 후보군 뜻/스포일러 정제
+  const sanitizedCandidates = candidates.map((c) => ({
+    ...c,
+    meaning: sanitizeMeaningText(c.meaning, c.word),
+  }));
+
+  const sanitizedPhrases = phraseCandidates.map((p) => ({
+    ...p,
+    meaning: sanitizeMeaningText(p.meaning, p.phrase),
+  }));
+
   onProgress?.(100, '완료!');
   return {
     rawText,
     passageText,
     sentences,
-    candidates,
-    phraseCandidates,
+    candidates: sanitizedCandidates,
+    phraseCandidates: sanitizedPhrases,
   };
 }

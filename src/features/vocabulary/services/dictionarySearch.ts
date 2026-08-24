@@ -50,7 +50,7 @@ export function normalizePartOfSpeech(pos: string | undefined, word: string): st
 /**
  * HTML 태그 및 특수문자 제거
  */
-function cleanText(text: string): string {
+export function cleanText(text: string): string {
   if (!text) return '';
   return text
     .replace(/<[^>]+>/g, '')
@@ -67,9 +67,193 @@ function cleanText(text: string): string {
 }
 
 /**
+ * 한국어 뜻 텍스트 정제 (영어 예문 분리, 구두점 정리, 정답 스포일러 제거)
+ */
+export function sanitizeMeaningText(rawMeaning: string, targetWord?: string): string {
+  if (!rawMeaning) return '';
+  const text = cleanText(rawMeaning);
+
+  // 쉼표, 줄바꿈 등으로 분리
+  const segments = text.split(/[,;\n\r]+/).map((s) => s.trim()).filter(Boolean);
+  const cleanMeanings: string[] = [];
+
+  for (const seg of segments) {
+    // 1. 영어 예문 + 한국어 번역 형태인 경우 (예: "That is not right. 그것은 옳지 않다.", "I hope you feel better. 빨리 쾌차하세요.")
+    // 한글 번역 부분만 추출
+    const engKrMatch = seg.match(/^([a-zA-Z0-9\s,.'’"!?–—~-]+)\s{1,}([가-힣\s,.'~?!]+)$/);
+    if (engKrMatch && engKrMatch[2]) {
+      const krOnly = engKrMatch[2].replace(/^[.,\s]+|[.,\s]+$/g, '').trim();
+      if (krOnly && !cleanMeanings.includes(krOnly)) {
+        cleanMeanings.push(krOnly);
+      }
+      continue;
+    }
+
+    // 2. 항목에 2단어 이상의 영어 문장이 포함되어 있는 경우 (예: "I feel better 더 좋다")
+    if (/[a-zA-Z]{2,}\s+[a-zA-Z]{2,}/.test(seg) && /[가-힣]/.test(seg)) {
+      const krPart = seg.replace(/[a-zA-Z0-9\s,.'’"!?–—~-]+(?=[가-힣])/, '').trim();
+      const cleaned = krPart.replace(/^[a-zA-Z0-9\s.,'’"!?]+|[a-zA-Z0-9\s.,'’"!?]+$/g, '').trim();
+      if (cleaned && !cleanMeanings.includes(cleaned)) {
+        cleanMeanings.push(cleaned);
+      }
+      continue;
+    }
+
+    // 3. 순수 영문이나 특수기호만 있는 항목은 제외
+    if (!/[가-힣]/.test(seg)) {
+      continue;
+    }
+
+    // 4. 대상 단어가 단독으로 들어간 경우 스포일러 방지 필터링
+    let cleanedSeg = seg;
+    if (targetWord && targetWord.trim().length >= 2) {
+      const escaped = targetWord.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      cleanedSeg = cleanedSeg.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '').trim();
+    }
+
+    // 5. 앞뒤 불필요한 구두점 제거 (단, 한국어 숙어의 '~을', '~에' 표시인 ~ 물결표는 온전히 보존)
+    cleanedSeg = cleanedSeg
+      .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanedSeg && !cleanMeanings.includes(cleanedSeg)) {
+      cleanMeanings.push(cleanedSeg);
+    }
+  }
+
+  // 중복 제거 및 결합
+  const unique = Array.from(new Set(cleanMeanings)).filter(Boolean);
+  let result = unique.join(', ');
+
+  // 마침표+쉼표 등 잔여 구두점 정리 (예: "맞는., " -> "맞는")
+  result = result
+    .replace(/\s*[\.,;]+\s*[\.,;]+/g, ', ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '')
+    .trim();
+
+  return result;
+}
+
+export interface ExtractedMeaningExampleResult {
+  meaning: string;
+  exampleSentence?: string;
+  exampleTranslation?: string;
+}
+
+/**
+ * 단어/숙어의 뜻 필드를 정밀 검사하여 예문(영문+해석)을 분리하고 순수 뜻을 정제
+ */
+export function cleanMeaningAndExtractExample(
+  rawMeaning: string,
+  wordOrPhrase: string,
+  existingEx?: string,
+  existingExTrans?: string
+): ExtractedMeaningExampleResult {
+  if (!rawMeaning) {
+    return {
+      meaning: '',
+      exampleSentence: existingEx || '',
+      exampleTranslation: existingExTrans || '',
+    };
+  }
+
+  let exSentence = existingEx && existingEx !== 'null' ? existingEx : '';
+  let exTrans = existingExTrans && existingExTrans !== 'null' ? existingExTrans : '';
+  const definitions: string[] = [];
+
+  const segments = rawMeaning.split(/[,;\n\r]+/).map((s) => s.trim()).filter(Boolean);
+
+  for (const seg of segments) {
+    // 1. 영어 예문 + 한국어 번역 구조 (예: "That is not right. 그것은 옳지 않다.", "I hope you feel better. 빨리 쾌차하세요.")
+    const engKrMatch = seg.match(/^([a-zA-Z0-9\s,.'’"!?–—~-]+)\s{1,}([가-힣\s,.'~?!]+)$/);
+    if (engKrMatch) {
+      if (!exSentence) exSentence = engKrMatch[1].trim();
+      if (!exTrans) exTrans = engKrMatch[2].replace(/^[.,\s]+|[.,\s]+$/g, '').trim();
+      continue;
+    }
+
+    // 2. 단어 + 예문 복합 구조 (예: "overcome difficulties 어려움을 극복하다")
+    if (/[a-zA-Z]{2,}\s+[a-zA-Z]{2,}/.test(seg) && /[가-힣]/.test(seg)) {
+      const engPart = seg.match(/^[a-zA-Z0-9\s,.'’"!?–—~-]+/);
+      const krPart = seg.replace(/^[a-zA-Z0-9\s,.'’"!?–—~-]+/, '').trim();
+      if (engPart && !exSentence) exSentence = engPart[0].trim();
+      if (krPart && !exTrans) exTrans = krPart.replace(/^[.,\s]+|[.,\s]+$/g, '').trim();
+      continue;
+    }
+
+    // 3. 순수 영문인 경우 스킵
+    if (!/[가-힣]/.test(seg)) continue;
+
+    // 4. 번호 매김 제거 (예: "1-1. 권력", "1-2. 통제")
+    let cleaned = seg.replace(/^\d+[-.]\d+[\.\s]*/, '').replace(/^\d+[\.\s]*/, '').trim();
+
+    // 5. 대상 영단어 단독 스포일러 제거
+    if (wordOrPhrase && wordOrPhrase.length >= 2) {
+      const escaped = wordOrPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      cleaned = cleaned.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '').trim();
+    }
+
+    // 6. 구두점 정리 (물결표 ~는 숙어용으로 보존)
+    cleaned = cleaned
+      .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleaned && !definitions.includes(cleaned)) {
+      definitions.push(cleaned);
+    }
+  }
+
+  let finalMeaning = definitions.join(', ');
+
+  // 내장 사전 활용 (만약 추출된 뜻이 비어있거나 '의 과거분사' 등만 남은 경우)
+  const cleanKey = wordOrPhrase.toLowerCase().trim();
+  const builtin = lookupWordMeaning(cleanKey) || BUILTIN_DICTIONARY[cleanKey];
+  if (builtin && builtin.meaning) {
+    if (!finalMeaning || finalMeaning === '의 과거분사' || finalMeaning === '의 현재분사' || definitions.length === 0) {
+      finalMeaning = builtin.meaning;
+    }
+  }
+
+  // 문법 설명만 남은 경우 (예: "give 의 과거분사" -> "주다(give)의 과거분사, 주어진")
+  if (finalMeaning.includes('과거분사') || finalMeaning.includes('현재분사') || finalMeaning.includes('동명사')) {
+    const baseMatch = rawMeaning.match(/([a-zA-Z]+)\s*의\s*(과거분사|현재분사|동명사)/i);
+    if (baseMatch) {
+      const baseWord = baseMatch[1].toLowerCase();
+      const baseEntry = lookupWordMeaning(baseWord) || BUILTIN_DICTIONARY[baseWord];
+      if (baseEntry && baseEntry.meaning) {
+        finalMeaning = `${baseEntry.meaning} (${baseWord}의 ${baseMatch[2]})`;
+      }
+    }
+  }
+
+  // 구두점 최종 정리
+  finalMeaning = finalMeaning
+    .replace(/\s*[\.,;]+\s*[\.,;]+/g, ', ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '')
+    .trim();
+
+  return {
+    meaning: finalMeaning || sanitizeMeaningText(rawMeaning, wordOrPhrase),
+    exampleSentence: exSentence,
+    exampleTranslation: exTrans,
+  };
+}
+
+interface NaverFetchResult {
+  meaning: string;
+  source: string;
+  exampleSentence?: string;
+  exampleTranslation?: string;
+}
+
+/**
  * 네이버 영어사전 자동완성/표제어 API 검색
  */
-async function fetchNaverDictionary(cleanWord: string) {
+async function fetchNaverDictionary(cleanWord: string): Promise<NaverFetchResult | null> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -91,25 +275,60 @@ async function fetchNaverDictionary(cleanWord: string) {
             const entryWord = cleanText(String(entry[0] || '')).toLowerCase();
             const entryMeanings = entry[1];
             if (entryWord === cleanWord.toLowerCase() || entryWord.startsWith(cleanWord.toLowerCase())) {
-              if (Array.isArray(entryMeanings) && entryMeanings.length > 0) {
-                const meaningText = entryMeanings
-                  .map((m: unknown) => cleanText(String(m)))
-                  .filter(Boolean)
-                  .join(', ');
-                if (meaningText && /[가-힣]/.test(meaningText)) {
-                  return {
-                    meaning: meaningText,
-                    source: '네이버 영어사전',
-                  };
+              const rawList: string[] = Array.isArray(entryMeanings)
+                ? entryMeanings.map((m: unknown) => cleanText(String(m))).filter(Boolean)
+                : typeof entryMeanings === 'string'
+                ? [cleanText(entryMeanings)]
+                : [];
+
+              if (rawList.length === 0) continue;
+
+              const definitions: string[] = [];
+              let extractedEx = '';
+              let extractedExTrans = '';
+              let isInflectionOnly = true;
+
+              for (const item of rawList) {
+                // 예문 패턴 확인 (예: "That is not right. 그것은 옳지 않다.")
+                const exMatch = item.match(/^([a-zA-Z0-9\s,.'’"!?–—~-]+)\s{1,}([가-힣\s,.'~?!]+)$/);
+                if (exMatch && !extractedEx) {
+                  extractedEx = exMatch[1].trim();
+                  extractedExTrans = exMatch[2].trim();
+                  continue;
                 }
-              } else if (typeof entryMeanings === 'string') {
-                const cleanM = cleanText(entryMeanings);
-                if (cleanM && /[가-힣]/.test(cleanM)) {
-                  return {
-                    meaning: cleanM,
-                    source: '네이버 영어사전',
-                  };
+
+                // 순수 뜻 또는 문법 설명
+                const sanitized = sanitizeMeaningText(item, cleanWord);
+                if (sanitized) {
+                  definitions.push(sanitized);
+                  // 현재분사, 과거형 등의 문법 설명만 있는지 확인
+                  if (!/분사|동명사|과거형|복수형|형용사형|부사형/.test(sanitized)) {
+                    isInflectionOnly = false;
+                  }
                 }
+              }
+
+              let finalMeaning = definitions.join(', ');
+
+              // 만약 문법 설명(예: "get의 현재분사, get의 동명사")만 있다면, 원형 단어(get)의 기본 뜻을 찾아 보충
+              if (isInflectionOnly && finalMeaning) {
+                const baseWordMatch = finalMeaning.match(/([a-zA-Z]+)의/);
+                const baseWord = baseWordMatch ? baseWordMatch[1].toLowerCase() : '';
+                if (baseWord && baseWord !== cleanWord) {
+                  const baseEntry = lookupWordMeaning(baseWord) || BUILTIN_DICTIONARY[baseWord];
+                  if (baseEntry && baseEntry.meaning) {
+                    finalMeaning = `${baseEntry.meaning} (${finalMeaning})`;
+                  }
+                }
+              }
+
+              if (finalMeaning && /[가-힣]/.test(finalMeaning)) {
+                return {
+                  meaning: finalMeaning,
+                  source: '네이버 영어사전',
+                  exampleSentence: extractedEx,
+                  exampleTranslation: extractedExTrans,
+                };
               }
             }
           }
@@ -410,6 +629,10 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     const naverRes = await fetchNaverDictionary(cleanWord);
     if (naverRes && naverRes.meaning) {
       meaning = naverRes.meaning;
+      if (naverRes.exampleSentence && isValidExampleForWord(naverRes.exampleSentence, cleanWord)) {
+        exampleSentence = naverRes.exampleSentence;
+        exampleTranslation = naverRes.exampleTranslation || '';
+      }
       source = '네이버 영어사전';
     }
   } catch {}
@@ -469,10 +692,11 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   }
 
   const finalKoreanPron = convertToKoreanPronunciation(pronunciation, cleanWord);
+  const sanitizedMeaning = sanitizeMeaningText(meaning, cleanWord);
 
   return {
     word: cleanWord,
-    meaning: meaning || '사전 등록 필요',
+    meaning: sanitizedMeaning || '사전 등록 필요',
     partOfSpeech,
     pronunciation: finalKoreanPron,
     exampleSentence,

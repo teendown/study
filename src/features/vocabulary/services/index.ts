@@ -5,7 +5,12 @@
 
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
 import type { CreateVocabularyInput, UpdateVocabularyInput, SearchVocabularyInput } from '../schemas';
-import { searchWordOnline, isValidExampleForWord, type WordSearchResult } from './dictionarySearch';
+import {
+  searchWordOnline,
+  isValidExampleForWord,
+  cleanMeaningAndExtractExample,
+  type WordSearchResult,
+} from './dictionarySearch';
 import {
   fetchAllVocabulariesFromTurso,
   addVocabularyToTurso,
@@ -240,11 +245,21 @@ export async function addVocabularyAction(
     return { success: false, error: `"${input.word}"은(는) 이미 등록된 단어입니다.` };
   }
 
-  let finalMeaning = input.meaning.trim();
+  // 뜻 및 예문 스마트 자동 분리 & 구두점 정제
+  const targetWord = input.word.trim();
+  const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+    cleanMeaningAndExtractExample(
+      input.meaning || '',
+      targetWord,
+      input.exampleSentence,
+      input.exampleTranslation
+    );
+
+  let finalMeaning = cleanMeaning;
   let finalPos = input.partOfSpeech || null;
   let finalPron = input.pronunciation || null;
-  let finalEx = input.exampleSentence && isValidExampleForWord(input.exampleSentence, input.word) ? input.exampleSentence.trim() : null;
-  let finalExTrans = finalEx ? (input.exampleTranslation?.trim() || null) : null;
+  let finalEx = parsedEx && isValidExampleForWord(parsedEx, targetWord) ? parsedEx.trim() : null;
+  let finalExTrans = finalEx ? (parsedExTrans?.trim() || null) : null;
   let finalSyn = input.synonyms || null;
   let finalAnt = input.antonyms || null;
   let finalSource = input.source || '네이버 영어사전';
@@ -252,12 +267,12 @@ export async function addVocabularyAction(
   // 뜻이나 정보가 없으면 자동 사전 검색 실행
   if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
     try {
-      const searchResult = await searchWordOnline(input.word.trim());
+      const searchResult = await searchWordOnline(targetWord);
       if (searchResult && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
         finalMeaning = searchResult.meaning;
         if (!finalPos && searchResult.partOfSpeech) finalPos = searchResult.partOfSpeech;
         if (!finalPron && searchResult.pronunciation) finalPron = searchResult.pronunciation;
-        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, input.word)) {
+        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, targetWord)) {
           finalEx = searchResult.exampleSentence;
           finalExTrans = searchResult.exampleTranslation || null;
         }
@@ -270,7 +285,7 @@ export async function addVocabularyAction(
 
   const newItem: VocabularyWithItem = {
     id: `vocab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    word: input.word.trim(),
+    word: targetWord,
     meaning: finalMeaning || '의미 검색 필요',
     partOfSpeech: finalPos,
     pronunciation: finalPron,
@@ -311,18 +326,25 @@ export async function updateVocabularyAction(
   const idx = all.findIndex((v) => v.id === id);
   if (idx === -1) return { success: false, error: '단어를 찾을 수 없습니다.' };
 
-  const targetWord = input.word || all[idx].word;
-  const sanitizedEx = input.exampleSentence !== undefined
-    ? (input.exampleSentence && isValidExampleForWord(input.exampleSentence, targetWord) ? input.exampleSentence : null)
-    : all[idx].exampleSentence;
+  const targetWord = input.word ? input.word.trim() : all[idx].word;
+  const rawMeaning = input.meaning !== undefined ? input.meaning : all[idx].meaning;
+  const rawEx = input.exampleSentence !== undefined ? input.exampleSentence : (all[idx].exampleSentence || undefined);
+  const rawExTrans = input.exampleTranslation !== undefined ? input.exampleTranslation : (all[idx].exampleTranslation || undefined);
+
+  const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+    cleanMeaningAndExtractExample(rawMeaning, targetWord, rawEx, rawExTrans);
+
+  const sanitizedEx = parsedEx && isValidExampleForWord(parsedEx, targetWord) ? parsedEx : null;
 
   const updated: VocabularyWithItem = {
     ...all[idx],
     ...input,
+    word: targetWord,
+    meaning: cleanMeaning || all[idx].meaning,
     partOfSpeech: input.partOfSpeech ?? all[idx].partOfSpeech,
     pronunciation: input.pronunciation ?? all[idx].pronunciation,
     exampleSentence: sanitizedEx,
-    exampleTranslation: sanitizedEx ? (input.exampleTranslation ?? all[idx].exampleTranslation) : null,
+    exampleTranslation: sanitizedEx ? (parsedExTrans ?? all[idx].exampleTranslation) : null,
     synonyms: input.synonyms ?? all[idx].synonyms,
     antonyms: input.antonyms ?? all[idx].antonyms,
     source: input.source ?? all[idx].source,

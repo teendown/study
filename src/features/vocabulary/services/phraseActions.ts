@@ -4,7 +4,12 @@
 
 import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
 import type { CreatePhraseInput, UpdatePhraseInput, SearchPhraseInput } from '../schemas/phraseSchemas';
-import { searchWordOnline, isValidExampleForWord, type WordSearchResult } from './dictionarySearch';
+import {
+  searchWordOnline,
+  isValidExampleForWord,
+  cleanMeaningAndExtractExample,
+  type WordSearchResult,
+} from './dictionarySearch';
 import {
   fetchAllPhrasesFromTurso,
   addPhraseToTurso,
@@ -176,17 +181,27 @@ export async function addPhraseAction(
     return { success: false, error: `"${input.phrase}"은(는) 이미 등록된 숙어입니다.` };
   }
 
-  let finalMeaning = input.meaning.trim();
-  let finalEx = input.exampleSentence && isValidExampleForWord(input.exampleSentence, input.phrase) ? input.exampleSentence.trim() : null;
-  let finalExTrans = finalEx ? (input.exampleTranslation?.trim() || null) : null;
+  // 뜻 및 예문 스마트 자동 분리 & 구두점 정제
+  const targetPhrase = input.phrase.trim();
+  const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+    cleanMeaningAndExtractExample(
+      input.meaning || '',
+      targetPhrase,
+      input.exampleSentence,
+      input.exampleTranslation
+    );
+
+  let finalMeaning = cleanMeaning;
+  let finalEx = parsedEx && isValidExampleForWord(parsedEx, targetPhrase) ? parsedEx.trim() : null;
+  let finalExTrans = finalEx ? (parsedExTrans?.trim() || null) : null;
   let finalSource = input.source || '네이버 영어사전';
 
   if (!finalMeaning || finalMeaning === '의미 미입력' || finalMeaning === '의미 검색 필요') {
     try {
-      const searchResult = await searchWordOnline(input.phrase.trim());
+      const searchResult = await searchWordOnline(targetPhrase);
       if (searchResult && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
         finalMeaning = searchResult.meaning;
-        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, input.phrase)) {
+        if (!finalEx && searchResult.exampleSentence && isValidExampleForWord(searchResult.exampleSentence, targetPhrase)) {
           finalEx = searchResult.exampleSentence;
           finalExTrans = searchResult.exampleTranslation || null;
         }
@@ -197,7 +212,7 @@ export async function addPhraseAction(
 
   const newItem: PhraseWithItem = {
     id: `phrase-${Date.now()}`,
-    phrase: input.phrase.trim(),
+    phrase: targetPhrase,
     meaning: finalMeaning || '의미 검색 필요',
     exampleSentence: finalEx,
     exampleTranslation: finalExTrans,
@@ -231,16 +246,23 @@ export async function updatePhraseAction(
   const idx = all.findIndex((p) => p.id === id);
   if (idx === -1) return { success: false, error: '숙어를 찾을 수 없습니다.' };
 
-  const targetPhrase = input.phrase || all[idx].phrase;
-  const sanitizedEx = input.exampleSentence !== undefined
-    ? (input.exampleSentence && isValidExampleForWord(input.exampleSentence, targetPhrase) ? input.exampleSentence : null)
-    : all[idx].exampleSentence;
+  const targetPhrase = input.phrase ? input.phrase.trim() : all[idx].phrase;
+  const rawMeaning = input.meaning !== undefined ? input.meaning : all[idx].meaning;
+  const rawEx = input.exampleSentence !== undefined ? input.exampleSentence : (all[idx].exampleSentence || undefined);
+  const rawExTrans = input.exampleTranslation !== undefined ? input.exampleTranslation : (all[idx].exampleTranslation || undefined);
+
+  const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+    cleanMeaningAndExtractExample(rawMeaning, targetPhrase, rawEx, rawExTrans);
+
+  const sanitizedEx = parsedEx && isValidExampleForWord(parsedEx, targetPhrase) ? parsedEx : null;
 
   all[idx] = {
     ...all[idx],
     ...input,
+    phrase: targetPhrase,
+    meaning: cleanMeaning || all[idx].meaning,
     exampleSentence: sanitizedEx,
-    exampleTranslation: sanitizedEx ? (input.exampleTranslation ?? all[idx].exampleTranslation) : null,
+    exampleTranslation: sanitizedEx ? (parsedExTrans ?? all[idx].exampleTranslation) : null,
     updatedAt: new Date().toISOString(),
   };
   saveStoredPhrases(all);

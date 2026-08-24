@@ -94,6 +94,7 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   aware: { meaning: '알고 있는, 의식하는', pos: 'adj.', pron: '[어웨어]', diff: 2 },
 
   // ── B ──
+  bad: { meaning: '나쁜, 서투른', pos: 'adj.', pron: '[배드]', diff: 1 },
   balance: { meaning: '균형, 평형', pos: 'n.', pron: '[밸런스]', diff: 1 },
   barrier: { meaning: '장벽, 장애물', pos: 'n.', pron: '[배리어]', diff: 2 },
   basic: { meaning: '기본적인, 기초의', pos: 'adj.', pron: '[베이직]', diff: 1 },
@@ -104,6 +105,8 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   believe: { meaning: '믿다, 생각하다', pos: 'v.', pron: '[빌리브]', diff: 1 },
   benefit: { meaning: '혜택, 이익, 유익하다', pos: 'n.', pron: '[베네핏]', diff: 1 },
   beneficial: { meaning: '유익한, 이로운', pos: 'adj.', pron: '[베네피셜]', diff: 2 },
+  best: { meaning: '최고의, 가장 좋은', pos: 'adj.', pron: '[베스트]', diff: 1 },
+  better: { meaning: '더 좋은, 더 나은, 개선하다', pos: 'adj.', pron: '[베터]', diff: 1 },
   biodiversity: { meaning: '생물 다양성', pos: 'n.', pron: '[바이오다이버시티]', diff: 3 },
   blame: { meaning: '비난하다, 탓하다', pos: 'v.', pron: '[블레임]', diff: 2 },
   borrow: { meaning: '빌리다', pos: 'v.', pron: '[바로]', diff: 1 },
@@ -381,6 +384,8 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   // ── F ──
   factor: { meaning: '요인, 요소', pos: 'n.', pron: '[팩터]', diff: 2 },
   failure: { meaning: '실패, 실패작', pos: 'n.', pron: '[페일리어]', diff: 1 },
+  feel: { meaning: '느끼다, 기분이 들다', pos: 'v.', pron: '[필]', diff: 1 },
+  find: { meaning: '찾다, 발견하다', pos: 'v.', pron: '[파인드]', diff: 1 },
   familiar: { meaning: '익숙한, 친근한', pos: 'adj.', pron: '[퍼밀리어]', diff: 1 },
   famous: { meaning: '유명한', pos: 'adj.', pron: '[페이머스]', diff: 1 },
   fascinating: { meaning: '매혹적인, 대단히 흥미로운', pos: 'adj.', pron: '[패시네이팅]', diff: 2 },
@@ -416,8 +421,12 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   generate: { meaning: '발생시키다, 생성하다', pos: 'v.', pron: '[제너레이트]', diff: 2 },
   generation: { meaning: '세대, 발생', pos: 'n.', pron: '[제너레이션]', diff: 2 },
   generous: { meaning: '관대한, 후한', pos: 'adj.', pron: '[제너러스]', diff: 2 },
+  get: { meaning: '얻다, 받다, 되다', pos: 'v.', pron: '[겟]', diff: 1 },
+  give: { meaning: '주다, 건네다', pos: 'v.', pron: '[기브]', diff: 1 },
   global: { meaning: '세계적인, 지구의', pos: 'adj.', pron: '[글로벌]', diff: 1 },
+  go: { meaning: '가다, 나아가다', pos: 'v.', pron: '[고]', diff: 1 },
   goal: { meaning: '목표, 목적', pos: 'n.', pron: '[골]', diff: 1 },
+  good: { meaning: '좋은, 훌륭한, 착한', pos: 'adj.', pron: '[굿]', diff: 1 },
   government: { meaning: '정부, 정권', pos: 'n.', pron: '[거번먼트]', diff: 1 },
   gradual: { meaning: '점진적인, 서서히 일어나는', pos: 'adj.', pron: '[그래듀얼]', diff: 2 },
   gradually: { meaning: '점차, 서서히', pos: 'adv.', pron: '[그래듀얼리]', diff: 2 },
@@ -542,6 +551,7 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   maintenance: { meaning: '유지, 보수', pos: 'n.', pron: '[메인터넌스]', diff: 3 },
   major: { meaning: '주요한, 중대한, 전공', pos: 'adj.', pron: '[메이저]', diff: 1 },
   majority: { meaning: '대다수, 과반수', pos: 'n.', pron: '[머조리티]', diff: 2 },
+  make: { meaning: '만들다, 이루다', pos: 'v.', pron: '[메이크]', diff: 1 },
   manage: { meaning: '관리하다, 간신히 해내다', pos: 'v.', pron: '[매니지]', diff: 1 },
   management: { meaning: '경영, 관리', pos: 'n.', pron: '[매니지먼트]', diff: 2 },
   manufacture: { meaning: '제조하다, 생산하다', pos: 'v.', pron: '[매뉴팩처]', diff: 2 },
@@ -748,8 +758,10 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   reveal: { meaning: '드러내다, 폭로하다', pos: 'v.', pron: '[리빌]', diff: 2 },
   revolution: { meaning: '혁명, 회전', pos: 'n.', pron: '[레볼루션]', diff: 2 },
   reward: { meaning: '보상, 보답하다', pos: 'n.', pron: '[리워드]', diff: 1 },
+  right: { meaning: '올바른, 맞는, 오른쪽의, 권리', pos: 'adj.', pron: '[라이트]', diff: 1 },
   risk: { meaning: '위험, 위험을 무릅쓰다', pos: 'n.', pron: '[리스크]', diff: 1 },
   role: { meaning: '역할, 직분', pos: 'n.', pron: '[롤]', diff: 1 },
+  run: { meaning: '달리다, 운영하다', pos: 'v.', pron: '[런]', diff: 1 },
 
   // ── S ──
   satisfy: { meaning: '만족시키다, 충족하다', pos: 'v.', pron: '[새티스파이]', diff: 2 },
@@ -758,6 +770,7 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   scarce: { meaning: '부족한, 드문', pos: 'adj.', pron: '[스케어스]', diff: 3 },
   scene: { meaning: '장면, 현장', pos: 'n.', pron: '[신]', diff: 1 },
   schedule: { meaning: '일정, 예정하다', pos: 'n.', pron: '[스케줄]', diff: 1 },
+  see: { meaning: '보다, 알다, 만나다', pos: 'v.', pron: '[씨]', diff: 1 },
   scholar: { meaning: '학자', pos: 'n.', pron: '[스칼라]', diff: 2 },
   scientific: { meaning: '과학의, 과학적인', pos: 'adj.', pron: '[사이언티픽]', diff: 1 },
   scientist: { meaning: '과학자', pos: 'n.', pron: '[사이언티스트]', diff: 1 },
@@ -817,6 +830,7 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   system: { meaning: '체계, 제도, 시스템', pos: 'n.', pron: '[시스템]', diff: 1 },
 
   // ── T ──
+  take: { meaning: '가지다, 데려가다, 취하다', pos: 'v.', pron: '[테이크]', diff: 1 },
   target: { meaning: '목표, 겨냥하다', pos: 'n.', pron: '[타깃]', diff: 1 },
   task: { meaning: '과제, 업무, 일', pos: 'n.', pron: '[태스크]', diff: 1 },
   technology: { meaning: '기술, 과학 기술', pos: 'n.', pron: '[테크놀로지]', diff: 1 },
