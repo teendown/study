@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { recognizeAndExtractWords } from '../services/ocrService';
+import { getGeminiApiKey } from '@/lib/ai/geminiService';
 import { OcrCandidateList } from './OcrCandidateList';
 import { OcrPhraseList } from './OcrPhraseList';
 import { OcrPassageReview } from './OcrPassageReview';
@@ -225,11 +226,23 @@ export function OcrModal({
 
             {/* 고정밀 개선 안내 팁 */}
             <div className="p-3.5 rounded-xl bg-muted/50 border border-border text-xs text-muted-foreground space-y-1">
-              <p className="font-semibold text-foreground flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 고정밀 OCR &amp; 숙어/단어 추출 엔진
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-foreground flex items-center gap-1">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Google Gemini AI Vision 단어장 표 &amp; 지문 분석
+                </p>
+                {getGeminiApiKey() ? (
+                  <span className="text-[10px] bg-green-500/15 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full font-bold">
+                    AI 비전 활성화됨 ✓
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                    설정에서 AI 키 등록 가능
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                단어장 표(1열 영단어/숙어, 2열 한국어 뜻)를 사진 그대로 한 글자 오차 없이 1:1로 인식하며, 지문 속 핵심 어휘와 숙어를 자동 판독합니다.
               </p>
-              <p>• <strong>단어 전수 추출</strong>뿐만 아니라 <strong>지문 내 필수 숙어/연어 자동 판독</strong> 지원</p>
-              <p>• <strong>완성형 본문 저장</strong>으로 지문을 통째로 문장별 끊어 읽기 학습 가능</p>
             </div>
           </div>
         )}
