@@ -31,7 +31,7 @@ export interface GeminiOcrVisionResult {
 }
 
 const GEMINI_STORAGE_KEY = 'study_quest_gemini_api_key';
-const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
 
 // 안전하게 동적 합성되는 기본 내장 AI API Key
 const _K_CODES = [65, 81, 46, 65, 98, 56, 82, 78, 54, 75, 75, 118, 85, 122, 114, 69, 55, 116, 116, 100, 54, 68, 108, 79, 56, 81, 74, 80, 118, 103, 89, 110, 79, 121, 86, 104, 90, 48, 104, 75, 89, 90, 66, 66, 79, 51, 115, 105, 51, 75, 100, 73, 103];
@@ -119,23 +119,25 @@ export async function analyzeWordWithGemini(
   const cleanWord = wordOrPhrase.trim();
   if (!cleanWord) return null;
 
+  const isPhrase = cleanWord.includes(' ');
+
   const prompt = `You are an expert English-Korean educational lexicographer for Korean middle/high school students and CSAT (수능).
-Analyze the English word or idiom/phrase: "${cleanWord}"${contextSentence ? ` in the context of: "${contextSentence}"` : ''}.
+Analyze the English ${isPhrase ? 'phrase/idiom' : 'word'}: "${cleanWord}"${contextSentence ? ` in the context of: "${contextSentence}"` : ''}.
 
 Strict Guidelines:
-1. "meaning": Provide 1~3 standard, essential Korean definitions for students (e.g. "journaling" -> "일기 쓰기, 일지 작성", NOT simple phonetic transliteration like "저널링"). Do NOT include English text or grammar fragments.
-2. "partOfSpeech": One of ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'phr.'].
-3. "pronunciation": Korean phonetic spelling in square brackets (e.g. "[저널링]", "[애플]").
-4. "exampleSentence": A clear, natural English sentence demonstrating this exact word/phrase.
-5. "exampleTranslation": Fluent Korean translation of the example sentence.
-6. "synonyms": 1~3 comma-separated English synonyms.
-7. "antonyms": 1~2 comma-separated English antonyms (if applicable, else empty string).
+1. "meaning": Provide 1~3 standard, high-quality, natural Korean definitions for students (e.g. "sync" -> "동기화하다, 동시에 맞추다, 동기화", "give up" -> "포기하다, 그만두다"). NEVER return placeholder strings like "사전 등록 필요" or simple English phonetic sounds.
+2. "partOfSpeech": One of ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'phr.']. (${isPhrase ? 'Default to phr.' : 'e.g. n., v., adj.'}).
+3. "pronunciation": Korean phonetic spelling in square brackets (e.g. "[싱크]", "[기브 업]").
+4. "exampleSentence": A clear, natural English sentence demonstrating this exact word/phrase. The word "${cleanWord}" MUST be included in the sentence.
+5. "exampleTranslation": Fluent, natural Korean translation of the example sentence.
+6. "synonyms": 1~3 exact comma-separated English synonyms matching the meaning of "${cleanWord}". If none, leave empty string.
+7. "antonyms": 1~2 exact comma-separated English antonyms matching the meaning of "${cleanWord}". If none, leave empty string.
 
 Respond ONLY with a valid JSON object matching this schema without any markdown formatting:
 {
   "word": "${cleanWord}",
   "meaning": "...",
-  "partOfSpeech": "n.",
+  "partOfSpeech": "${isPhrase ? 'phr.' : 'n.'}",
   "pronunciation": "[...]",
   "exampleSentence": "...",
   "exampleTranslation": "...",
@@ -146,7 +148,7 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
   for (const model of GEMINI_MODELS) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -168,11 +170,11 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
         const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (rawText) {
           const parsed = JSON.parse(cleanJsonString(rawText)) as GeminiWordAnalysis;
-          if (parsed && parsed.meaning) {
+          if (parsed && parsed.meaning && !parsed.meaning.includes('사전 등록 필요')) {
             return {
               word: cleanWord,
               meaning: parsed.meaning.trim(),
-              partOfSpeech: parsed.partOfSpeech || 'n.',
+              partOfSpeech: parsed.partOfSpeech || (isPhrase ? 'phr.' : 'n.'),
               pronunciation: parsed.pronunciation || `[${cleanWord}]`,
               exampleSentence: parsed.exampleSentence || '',
               exampleTranslation: parsed.exampleTranslation || '',
@@ -184,6 +186,189 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
       }
     } catch (e) {
       console.warn(`Gemini (${model}) analysis fallback:`, e);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * AI 기반 단어/숙어 검수 및 보정 (Validation & Refinement)
+ * 기존 수집된 데이터(뜻, 품사, 발음, 예문, 유의어, 반의어)를 검수하여
+ * 부정확하거나 누락된 항목을 AI가 완벽하게 교정
+ */
+export async function validateAndRefineWordWithGemini(
+  wordOrPhrase: string,
+  candidateData: {
+    meaning?: string;
+    partOfSpeech?: string;
+    pronunciation?: string;
+    exampleSentence?: string;
+    exampleTranslation?: string;
+    synonyms?: string;
+    antonyms?: string;
+  }
+): Promise<GeminiWordAnalysis | null> {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
+
+  const cleanWord = wordOrPhrase.trim();
+  if (!cleanWord) return null;
+
+  const isPhrase = cleanWord.includes(' ');
+
+  const prompt = `You are a strict educational vocabulary validator for Korean students.
+Review and validate the following dictionary entry for the English ${isPhrase ? 'phrase' : 'word'} "${cleanWord}".
+
+Current draft data:
+- meaning: "${candidateData.meaning || ''}"
+- partOfSpeech: "${candidateData.partOfSpeech || ''}"
+- pronunciation: "${candidateData.pronunciation || ''}"
+- exampleSentence: "${candidateData.exampleSentence || ''}"
+- exampleTranslation: "${candidateData.exampleTranslation || ''}"
+- synonyms: "${candidateData.synonyms || ''}"
+- antonyms: "${candidateData.antonyms || ''}"
+
+Validation & Correction Tasks:
+1. "meaning": If current meaning is empty, placeholder (e.g. "사전 등록 필요"), unnatural, or inaccurate, replace it with 1~3 natural Korean definitions.
+2. "partOfSpeech": Fix or normalize to one of ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'phr.'].
+3. "pronunciation": Ensure friendly Korean phonetic bracket format (e.g. "[싱크]").
+4. "exampleSentence" & "exampleTranslation": Ensure sentence actually contains "${cleanWord}" and has a natural Korean translation. If missing or invalid, generate a clear, pedagogical one.
+5. "synonyms" & "antonyms": Remove any unrelated synonyms/antonyms that do not belong to "${cleanWord}" and provide accurate ones.
+
+Respond ONLY with a valid JSON object matching this schema:
+{
+  "word": "${cleanWord}",
+  "meaning": "...",
+  "partOfSpeech": "...",
+  "pronunciation": "...",
+  "exampleSentence": "...",
+  "exampleTranslation": "...",
+  "synonyms": "...",
+  "antonyms": "..."
+}`;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const parsed = JSON.parse(cleanJsonString(rawText)) as GeminiWordAnalysis;
+          if (parsed && parsed.meaning && !parsed.meaning.includes('사전 등록 필요')) {
+            return {
+              word: cleanWord,
+              meaning: parsed.meaning.trim(),
+              partOfSpeech: parsed.partOfSpeech || (isPhrase ? 'phr.' : 'n.'),
+              pronunciation: parsed.pronunciation || candidateData.pronunciation || `[${cleanWord}]`,
+              exampleSentence: parsed.exampleSentence || candidateData.exampleSentence || '',
+              exampleTranslation: parsed.exampleTranslation || candidateData.exampleTranslation || '',
+              synonyms: parsed.synonyms || '',
+              antonyms: parsed.antonyms || '',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Gemini (${model}) validation fallback:`, e);
+    }
+  }
+
+  return null;
+}
+
+export interface PassageTranslationResult {
+  fullTranslation: string;
+  sentences: string[];
+  sentenceTranslations: string[];
+}
+
+/**
+ * Gemini AI를 사용한 지문 전체 및 문장별 1:1 정밀 번역 생성
+ */
+export async function translatePassageWithSentences(
+  passageContent: string
+): Promise<PassageTranslationResult | null> {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return null;
+
+  const cleanText = passageContent.trim();
+  if (!cleanText) return null;
+
+  const prompt = `You are a professional educational translator for Korean students studying English reading passages.
+Analyze the following English passage, split it into clear individual sentences, and provide high-quality Korean translations for both the full passage and each individual sentence 1:1.
+
+English Passage:
+"""
+${cleanText}
+"""
+
+Strict Guidelines:
+1. "sentences": Array of original English sentences from the passage in sequential order.
+2. "sentenceTranslations": Array of Korean translations corresponding 1:1 to each English sentence in "sentences". The length of "sentences" and "sentenceTranslations" MUST be strictly equal.
+3. "fullTranslation": Natural, cohesive paragraph-level Korean translation of the whole passage.
+
+Respond ONLY with a valid JSON object matching this schema without any markdown formatting:
+{
+  "fullTranslation": "...",
+  "sentences": ["sentence 1", "sentence 2", ...],
+  "sentenceTranslations": ["1번 문장 해석", "2번 문장 해석", ...]
+}`;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.15,
+            responseMimeType: 'application/json',
+          },
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const parsed = JSON.parse(cleanJsonString(rawText)) as PassageTranslationResult;
+          if (parsed && parsed.fullTranslation && Array.isArray(parsed.sentences) && Array.isArray(parsed.sentenceTranslations)) {
+            return {
+              fullTranslation: parsed.fullTranslation.trim(),
+              sentences: parsed.sentences.map((s) => s.trim()).filter(Boolean),
+              sentenceTranslations: parsed.sentenceTranslations.map((t) => t.trim()).filter(Boolean),
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Gemini (${model}) passage translation fallback:`, e);
     }
   }
 

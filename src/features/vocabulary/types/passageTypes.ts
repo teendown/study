@@ -15,11 +15,13 @@ export interface PassageItem {
   content: string;
   translation?: string | null;
   sentences: string[];
+  sentenceTranslations?: string[];
   vocabularyList?: string[];
   phraseList?: ExtractedPhraseItem[];
   difficulty: number;
   grade?: number;
   source: string;
+  handwritingNotes?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +30,7 @@ export interface CreatePassageInput {
   title: string;
   content: string;
   translation?: string;
+  sentenceTranslations?: string[];
   source?: string;
   difficulty?: number;
   grade?: number;
@@ -37,9 +40,11 @@ export interface UpdatePassageInput {
   title?: string;
   content?: string;
   translation?: string;
+  sentenceTranslations?: string[];
   source?: string;
   difficulty?: number;
   grade?: number;
+  handwritingNotes?: Record<string, string>;
 }
 
 export interface PassageListResult {

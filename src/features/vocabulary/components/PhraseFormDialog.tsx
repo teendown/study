@@ -109,15 +109,20 @@ export function PhraseFormDialog({
       const res = await searchPhraseOnlineAction(clean);
       if (res.success && res.data) {
         const d = res.data;
-        if (d.meaning && d.meaning !== '의미 검색 필요') {
+        if (d.meaning && d.meaning !== '의미 검색 필요' && d.meaning !== '사전 등록 필요') {
           setMeaning(d.meaning);
         }
-        if (d.exampleSentence) setExampleSentence(d.exampleSentence);
-        if (d.exampleTranslation) setExampleTranslation(d.exampleTranslation);
+        setExampleSentence(d.exampleSentence || '');
+        setExampleTranslation(d.exampleTranslation || '');
         if (d.source) setSource(d.source);
 
+        const isAi = d.source?.includes('AI') || d.source?.includes('Gemini');
         setSearchSuccessMessage(
-          d.source ? `✨ [${d.source}] 숙어 정보가 자동 입력되었습니다.` : '✨ 숙어 정보가 자동 입력되었습니다.'
+          isAi
+            ? `✨ [AI 정밀 검수 완료] 정확한 숙어 정보가 자동 입력되었습니다.`
+            : d.source
+            ? `✨ [${d.source}] 숙어 정보가 자동 입력되었습니다.`
+            : '✨ 숙어 정보가 자동 입력되었습니다.'
         );
       } else if (!res.success) {
         if (isManual) setError(res.error || '숙어 정보를 찾지 못했습니다.');

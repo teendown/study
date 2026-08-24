@@ -138,8 +138,10 @@ export async function fetchAllPassagesFromTurso(): Promise<PassageItem[] | null>
       let meta: {
         translation?: string;
         sentences?: string[];
+        sentenceTranslations?: string[];
         vocabularyList?: string[];
         phraseList?: ExtractedPhraseItem[];
+        handwritingNotes?: Record<string, string>;
       } = {};
       try {
         if (row.metadata) {
@@ -164,11 +166,13 @@ export async function fetchAllPassagesFromTurso(): Promise<PassageItem[] | null>
         content,
         translation: meta.translation || null,
         sentences,
+        sentenceTranslations: meta.sentenceTranslations || undefined,
         vocabularyList,
         phraseList,
         difficulty: typeof row.difficulty === 'number' ? row.difficulty : 2,
         grade: typeof row.grade === 'number' ? row.grade : 10,
         source: row.source ? String(row.source) : '교재 지문',
+        handwritingNotes: meta.handwritingNotes,
         createdAt: String(row.created_at || new Date().toISOString()),
         updatedAt: String(row.updated_at || new Date().toISOString()),
       };
@@ -188,8 +192,10 @@ export async function addPassageToTurso(item: PassageItem): Promise<boolean> {
     const metaJson = JSON.stringify({
       translation: item.translation,
       sentences: item.sentences,
+      sentenceTranslations: item.sentenceTranslations,
       vocabularyList: item.vocabularyList,
       phraseList: item.phraseList,
+      handwritingNotes: item.handwritingNotes,
     });
 
     await client.execute({
@@ -292,6 +298,7 @@ export async function addPassageAction(
     content: cleanContent,
     translation: input.translation?.trim() || null,
     sentences,
+    sentenceTranslations: input.sentenceTranslations,
     vocabularyList,
     phraseList,
     difficulty: input.difficulty ?? 2,
@@ -333,11 +340,13 @@ export async function updatePassageAction(
     content: newContent,
     translation: input.translation !== undefined ? input.translation?.trim() || null : current.translation,
     sentences,
+    sentenceTranslations: input.sentenceTranslations !== undefined ? input.sentenceTranslations : current.sentenceTranslations,
     vocabularyList,
     phraseList,
     difficulty: input.difficulty ?? current.difficulty,
     grade: input.grade ?? current.grade,
     source: input.source !== undefined ? input.source.trim() : current.source,
+    handwritingNotes: input.handwritingNotes !== undefined ? input.handwritingNotes : current.handwritingNotes,
     updatedAt: new Date().toISOString(),
   };
 

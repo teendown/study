@@ -17,6 +17,11 @@ import {
   RefreshCw,
   CheckCheck,
   ExternalLink,
+  PenTool,
+  Eye,
+  EyeOff,
+  Target,
+  GraduationCap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -29,6 +34,9 @@ import { searchWordOnline, getNaverDictUrl } from '@/features/vocabulary/service
 import { getStoredVocabs } from '@/features/vocabulary/services';
 import { getStoredPhrases } from '@/features/vocabulary/services/phraseActions';
 import { findSentenceInPassage } from '@/lib/ocr/textCleaner';
+import { TabletPenCanvas } from './TabletPenCanvas';
+import { PenSelectionPopover } from './PenSelectionPopover';
+import { PassageStudyDialog } from './PassageStudyDialog';
 
 export interface PassageWordItem {
   word: string;
@@ -65,7 +73,10 @@ export function PassageDetail({
   onBatchAddWordsToVocab,
   onBatchAddPhrasesToVocab,
 }: PassageDetailProps) {
-  const [viewMode, setViewMode] = useState<'full' | 'sentences'>('full');
+  const [viewMode, setViewMode] = useState<'full' | 'sentences'>('sentences');
+  const [showTranslations, setShowTranslations] = useState(true);
+  const [isPenMode, setIsPenMode] = useState(false);
+  const [isStudyDialogOpen, setIsStudyDialogOpen] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [addedWords, setAddedWords] = useState<Set<string>>(new Set());
@@ -73,7 +84,55 @@ export function PassageDetail({
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
 
-  // 이미 단어장 및 숙어장에 저장되어 있는 목록 Set (중복 표시 및 방지)
+  // 펜슬 선택 팝업 상태
+  const [selectionPopover, setSelectionPopover] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // 손글씨 캔버스 데이터 저장 (로컬 캐시)
+  const [handwritingMap, setHandwritingMap] = useState<Record<number, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const saved = localStorage.getItem(`passage_pen_${passage.id}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleHandwritingChange = (sentenceIdx: number, dataUrl: string) => {
+    setHandwritingMap((prev) => {
+      const next = { ...prev, [sentenceIdx]: dataUrl };
+      try {
+        localStorage.setItem(`passage_pen_${passage.id}`, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // 텍스트 선택 감지 핸들러 (아이패드/태블릿 펜슬 터치 드래그 지원)
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      return;
+    }
+    const text = selection.toString().trim();
+    if (text.length >= 2 && text.length <= 50) {
+      try {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setSelectionPopover({
+          text,
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+        });
+      } catch {}
+    }
+  };
+
+  // 이미 단어장 및 숙어장에 저장되어 있는 목록 Set
   const registeredWordSet = useMemo(() => {
     try {
       const stored = getStoredVocabs();
@@ -92,20 +151,15 @@ export function PassageDetail({
     }
   }, [addedPhrases]);
 
-  // 추출된 숙어 목록 상태 (초기 자동 분석 + 수동 재분석 지원)
   const [extractedPhrases, setExtractedPhrases] = useState<ExtractedPhraseResult[]>([]);
-  // 추출된 단어 목록 상태
   const [extractedWords, setExtractedWords] = useState<string[]>([]);
-  // 사전에 없는 단어 실시간 인터넷 검색 캐시
   const [onlineMeaningMap, setOnlineMeaningMap] = useState<Record<string, { meaning: string; pron?: string }>>({});
 
-  // 1. 처음에 지문 들어갈 때 자동 분석 실행 (본문에서 검색되는 모든 숙어/단어 전수 추출)
   useEffect(() => {
     const freshPhrases = extractEnglishPhrases(passage.content);
     const existing = passage.phraseList || [];
     const map = new Map<string, ExtractedPhraseResult>();
 
-    // 기존에 저장되어 있던 숙어 추가
     existing.forEach((p) => {
       const ex = findSentenceInPassage(passage.content, passage.sentences, p.phrase);
       map.set(p.phrase.toLowerCase(), {
@@ -119,19 +173,15 @@ export function PassageDetail({
       });
     });
 
-    // 400+개 정밀 사전에서 검출된 모든 숙어 전수 추가
     freshPhrases.forEach((p) => {
       map.set(p.phrase.toLowerCase(), p);
     });
 
     setExtractedPhrases(Array.from(map.values()));
-
-    // 단어도 본문 내 모든 어휘 추출
     const wList = extractEnglishWords(passage.content).map((w) => w.word);
     setExtractedWords(wList);
   }, [passage.id, passage.content, passage.vocabularyList, passage.phraseList, passage.sentences]);
 
-  // 2. 사전에 없는 단어 백그라운드 인터넷 자동 검색
   useEffect(() => {
     const fetchMissingOnline = async () => {
       const missingWords = extractedWords.filter((w) => {
@@ -163,7 +213,6 @@ export function PassageDetail({
     fetchMissingOnline();
   }, [extractedWords, onlineMeaningMap]);
 
-  // 3. 수동 재분석 버튼 클릭 핸들러 (모든 숙어 전수 재검출)
   const handleManualReanalyze = () => {
     setIsReanalyzing(true);
     setReanalyzeMessage(null);
@@ -180,125 +229,151 @@ export function PassageDetail({
     }, 400);
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(passage.content);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
   const handleSpeak = (text: string) => {
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US';
-      utterance.rate = 0.85;
-      utterance.onstart = () => setIsPlayingAudio(true);
-      utterance.onend = () => setIsPlayingAudio(false);
-      utterance.onerror = () => setIsPlayingAudio(false);
-      window.speechSynthesis.speak(utterance);
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-US';
+      u.rate = 0.9;
+      u.onstart = () => setIsPlayingAudio(true);
+      u.onend = () => setIsPlayingAudio(false);
+      u.onerror = () => setIsPlayingAudio(false);
+      window.speechSynthesis.speak(u);
     }
   };
 
   const handleStopAudio = () => {
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       setIsPlayingAudio(false);
     }
   };
 
-  const handleAddWord = (word: string, meaning: string) => {
-    const exSentence = findSentenceInPassage(passage.content, passage.sentences, word);
-    onAddWordToVocab?.(word, meaning, exSentence || undefined);
-    setAddedWords((prev) => new Set(prev).add(word));
-  };
-
-  const handleAddPhrase = (phrase: string, meaning: string) => {
-    const exSentence = findSentenceInPassage(passage.content, passage.sentences, phrase);
-    onAddPhraseToVocab?.(phrase, meaning, exSentence || undefined);
-    setAddedPhrases((prev) => new Set(prev).add(phrase));
-  };
-
-  // 숙어 전체 일괄 추가 (중복 등록 방지 필터링 + 본문 실제 문장 예문 자동 포함)
-  const handleBatchAddPhrases = () => {
-    const unadded = extractedPhrases.filter(
-      (p) => !registeredPhraseSet.has(p.phrase.toLowerCase()) && !addedPhrases.has(p.phrase)
-    );
-
-    if (unadded.length === 0) {
-      alert(`지문 내 검출된 모든 숙어(${extractedPhrases.length}개)가 이미 숙어장에 등록되어 있습니다! 🔖`);
-      return;
+  const handleCopy = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(passage.content);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
     }
+  };
 
-    const items: PassagePhraseItem[] = unadded.map((p) => {
-      const exSentence = p.exampleSentence || findSentenceInPassage(passage.content, passage.sentences, p.phrase);
-      return {
+  const handleAddSingleWord = (word: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => {
+    if (onAddWordToVocab) {
+      onAddWordToVocab(word, meaning, exampleSentence, exampleTranslation);
+      setAddedWords((prev) => new Set([...prev, word.toLowerCase()]));
+    }
+  };
+
+  const handleAddSinglePhrase = (phrase: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => {
+    if (onAddPhraseToVocab) {
+      onAddPhraseToVocab(phrase, meaning, exampleSentence, exampleTranslation);
+      setAddedPhrases((prev) => new Set([...prev, phrase.toLowerCase()]));
+    }
+  };
+
+  const handleBatchAddPhrases = () => {
+    if (onBatchAddPhrasesToVocab && extractedPhrases.length > 0) {
+      const items: PassagePhraseItem[] = extractedPhrases.map((p) => ({
         phrase: p.phrase,
         meaning: p.meaning,
-        exampleSentence: exSentence || undefined,
-      };
-    });
-
-    if (onBatchAddPhrasesToVocab) {
+        exampleSentence: p.exampleSentence,
+        exampleTranslation: p.exampleTranslation,
+      }));
       onBatchAddPhrasesToVocab(items);
-    } else {
-      items.forEach((p) => onAddPhraseToVocab?.(p.phrase, p.meaning, p.exampleSentence));
+      const newSet = new Set(addedPhrases);
+      extractedPhrases.forEach((p) => newSet.add(p.phrase.toLowerCase()));
+      setAddedPhrases(newSet);
     }
-
-    setAddedPhrases((prev) => {
-      const next = new Set(prev);
-      unadded.forEach((p) => next.add(p.phrase));
-      return next;
-    });
   };
 
-  // 단어 전체 일괄 추가 (중복 등록 방지 필터링 + 본문 실제 문장 예문 자동 포함)
   const handleBatchAddWords = () => {
-    const unadded = extractedWords.filter(
-      (w) => !registeredWordSet.has(w.toLowerCase()) && !addedWords.has(w)
-    );
-
-    if (unadded.length === 0) {
-      alert(`지문 내 검출된 모든 단어(${extractedWords.length}개)가 이미 단어장에 등록되어 있습니다! 📚`);
-      return;
-    }
-
-    const items: PassageWordItem[] = unadded.map((w) => {
-      const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
-      const online = onlineMeaningMap[w];
-      const exSentence = findSentenceInPassage(passage.content, passage.sentences, w);
-      return {
-        word: w,
-        meaning: dict?.meaning || online?.meaning || '사전 등록 필요',
-        exampleSentence: exSentence || undefined,
-      };
-    });
-
-    if (onBatchAddWordsToVocab) {
+    if (onBatchAddWordsToVocab && extractedWords.length > 0) {
+      const items: PassageWordItem[] = extractedWords.map((w) => {
+        const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
+        const online = onlineMeaningMap[w];
+        const meaning = dict?.meaning || online?.meaning || '의미 검색 필요';
+        const ex = dict?.ex || findSentenceInPassage(passage.content, passage.sentences, w) || '';
+        const exTrans = dict?.exTrans || '';
+        return {
+          word: w,
+          meaning,
+          exampleSentence: ex,
+          exampleTranslation: exTrans,
+        };
+      });
       onBatchAddWordsToVocab(items);
-    } else {
-      items.forEach((item) => onAddWordToVocab?.(item.word, item.meaning, item.exampleSentence));
+      const newSet = new Set(addedWords);
+      extractedWords.forEach((w) => newSet.add(w.toLowerCase()));
+      setAddedWords(newSet);
     }
-
-    setAddedWords((prev) => {
-      const next = new Set(prev);
-      unadded.forEach((w) => next.add(w));
-      return next;
-    });
   };
 
-  const wordCount = passage.content.trim().split(/\s+/).filter(Boolean).length;
-  const sentenceList = passage.sentences || [];
+  const sentenceList = passage.sentences && passage.sentences.length > 0
+    ? passage.sentences
+    : [passage.content];
+
+  const wordCount = useMemo(() => {
+    return passage.content.trim().split(/\s+/).filter(Boolean).length;
+  }, [passage.content]);
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
-      {/* 상단 헤더 및 네비게이션 */}
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={onBack} className="gap-1.5 font-bold">
+    <div
+      className="space-y-6 pb-20 max-w-4xl mx-auto"
+      onMouseUp={handleTextSelection}
+      onTouchEnd={handleTextSelection}
+    >
+      {/* 펜/터치 선택 팝업 */}
+      {selectionPopover && (
+        <PenSelectionPopover
+          selectedText={selectionPopover.text}
+          position={{ x: selectionPopover.x, y: selectionPopover.y }}
+          onClose={() => setSelectionPopover(null)}
+          onAddWord={(w, m, ex, exT) => {
+            handleAddSingleWord(w, m, ex, exT);
+            setSelectionPopover(null);
+          }}
+          isAlreadyAdded={registeredWordSet.has(selectionPopover.text.toLowerCase())}
+        />
+      )}
+
+      {/* 문장 번역 학습 다이얼로그 */}
+      {isStudyDialogOpen && (
+        <PassageStudyDialog
+          open={isStudyDialogOpen}
+          onOpenChange={setIsStudyDialogOpen}
+          passage={passage}
+        />
+      )}
+
+      {/* 상단 네비게이션 & 액션 툴바 */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={onBack} className="gap-1 text-xs">
           <ArrowLeft className="h-4 w-4" /> 지문 목록으로
         </Button>
 
         <div className="flex items-center gap-1.5 flex-wrap">
-          {/* 수동 재분석 버튼 */}
+          <Button
+            size="sm"
+            onClick={() => setIsStudyDialogOpen(true)}
+            className="gap-1.5 text-xs font-bold bg-primary hover:bg-primary/90 text-white shadow-sm"
+          >
+            <Target className="h-4 w-4" />
+            문장 번역 학습 시작
+          </Button>
+
+          <Button
+            size="sm"
+            variant={isPenMode ? 'default' : 'outline'}
+            onClick={() => setIsPenMode(!isPenMode)}
+            className={`gap-1 text-xs ${
+              isPenMode ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600' : 'border-amber-500/40 text-amber-600 dark:text-amber-400'
+            }`}
+            title="애플펜슬로 문장 해석 직접 필기"
+          >
+            <PenTool className="h-3.5 w-3.5" />
+            {isPenMode ? '펜 필기 켜짐' : '펜 필기 모드'}
+          </Button>
+
           <Button
             size="sm"
             variant="outline"
@@ -307,12 +382,12 @@ export function PassageDetail({
             className="gap-1 text-xs border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isReanalyzing ? 'animate-spin' : ''}`} />
-            숙어/단어 다시 분석
+            숙어/단어 재분석
           </Button>
 
           {isPlayingAudio ? (
             <Button size="sm" variant="destructive" onClick={handleStopAudio} className="gap-1 text-xs">
-              <Volume2 className="h-3.5 w-3.5 animate-pulse" /> 재생 중지
+              <Volume2 className="h-3.5 w-3.5 animate-pulse" /> 중지
             </Button>
           ) : (
             <Button size="sm" variant="outline" onClick={() => handleSpeak(passage.content)} className="gap-1 text-xs">
@@ -339,17 +414,15 @@ export function PassageDetail({
         </div>
       </div>
 
-      {/* 재분석 완료 알림 토스트 메시지 */}
       {reanalyzeMessage && (
-        <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-1.5 animate-in slide-in-from-top-1">
-          <Sparkles className="h-4 w-4 text-amber-500" />
+        <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 text-xs font-semibold animate-in slide-in-from-top-1">
           {reanalyzeMessage}
         </div>
       )}
 
       {/* 지문 기본 정보 배너 */}
-      <div className="space-y-1.5 bg-card/90 backdrop-blur-xs p-4 rounded-xl border border-border">
-        <div className="flex items-center gap-2">
+      <div className="space-y-1.5 bg-card/90 backdrop-blur-xs p-4 rounded-xl border border-border shadow-xs">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="secondary" className="text-xs">
             난이도 {passage.difficulty}단계
           </Badge>
@@ -363,52 +436,77 @@ export function PassageDetail({
         <h2 className="text-xl font-bold text-foreground pt-1">{passage.title}</h2>
       </div>
 
-      {/* 뷰 모드 전환 탭 */}
-      <div className="flex items-center justify-between gap-2">
+      {/* 뷰 모드 전환 및 번역 토글 바 */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center rounded-lg bg-muted p-1 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setViewMode('sentences')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+              viewMode === 'sentences'
+                ? 'bg-background text-primary shadow-xs font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5" />
+            문장별 끊어 읽기 & 번역 ({sentenceList.length})
+          </button>
           <button
             type="button"
             onClick={() => setViewMode('full')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
               viewMode === 'full'
-                ? 'bg-background text-primary shadow-xs'
+                ? 'bg-background text-primary shadow-xs font-bold'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <FileText className="h-3.5 w-3.5" />
             단락 전체 읽기
           </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('sentences')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-              viewMode === 'sentences'
-                ? 'bg-background text-primary shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Layers className="h-3.5 w-3.5" />
-            문장별 끊어 읽기 ({sentenceList.length})
-          </button>
         </div>
+
+        {viewMode === 'sentences' && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowTranslations(!showTranslations)}
+            className="h-8 text-xs gap-1.5 text-muted-foreground hover:text-foreground font-semibold"
+          >
+            {showTranslations ? (
+              <>
+                <EyeOff className="h-3.5 w-3.5 text-primary" />
+                번역 가리기
+              </>
+            ) : (
+              <>
+                <Eye className="h-3.5 w-3.5 text-primary" />
+                번역 보기
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* 본문 콘텐츠 뷰 */}
       {viewMode === 'full' ? (
         <div className="space-y-4">
-          {/* 영어 원문 본문 */}
           <Card className="bg-card/95 backdrop-blur-xs border-primary/20 shadow-xs">
             <CardContent className="p-5">
-              <h4 className="text-xs font-bold text-primary mb-2 flex items-center gap-1">
-                <BookOpen className="h-4 w-4" /> ENGLISH PASSAGE
-              </h4>
-              <p className="text-base sm:text-lg leading-relaxed text-foreground font-serif tracking-normal whitespace-pre-line">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-bold text-primary flex items-center gap-1">
+                  <BookOpen className="h-4 w-4" /> ENGLISH PASSAGE
+                </h4>
+                <span className="text-[11px] text-muted-foreground">
+                  💡 단어나 숙어를 펜/마우스로 드래그하면 즉시 단어장에 추가할 수 있습니다.
+                </span>
+              </div>
+              <p className="text-base sm:text-lg leading-relaxed text-foreground font-serif tracking-normal whitespace-pre-line select-text">
                 {passage.content}
               </p>
             </CardContent>
           </Card>
 
-          {/* 한국어 해석 (있는 경우) */}
           {passage.translation && (
             <Card className="bg-muted/30 border-border">
               <CardContent className="p-4 space-y-1">
@@ -423,39 +521,68 @@ export function PassageDetail({
           )}
         </div>
       ) : (
-        /* 문장별 끊어 읽기 뷰 */
-        <div className="space-y-2.5">
-          {sentenceList.map((sentence, idx) => (
-            <Card
-              key={idx}
-              className="bg-card/90 backdrop-blur-xs hover:border-primary/40 transition-colors"
-            >
-              <CardContent className="p-3.5 flex items-start gap-3">
-                <span className="text-xs font-bold text-primary bg-primary/10 rounded-full h-6 w-6 flex items-center justify-center shrink-0 mt-0.5">
-                  {idx + 1}
-                </span>
-                <div className="flex-1 space-y-1">
-                  <p className="text-sm sm:text-base font-serif text-foreground leading-relaxed">
-                    {sentence}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-primary shrink-0"
-                  onClick={() => handleSpeak(sentence)}
-                >
-                  <Volume2 className="h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-3.5">
+          {sentenceList.map((sentence, idx) => {
+            const sentenceTrans = passage.sentenceTranslations?.[idx];
+            const hasHandwriting = Boolean(handwritingMap[idx]);
+
+            return (
+              <Card
+                key={idx}
+                className="bg-card/95 backdrop-blur-xs border-border hover:border-primary/40 transition-all shadow-xs overflow-hidden"
+              >
+                <CardContent className="p-4 space-y-2.5">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xs font-bold text-primary bg-primary/10 rounded-full h-6 w-6 flex items-center justify-center shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 space-y-1">
+                      <p className="text-base sm:text-lg font-serif text-foreground leading-relaxed select-text">
+                        {sentence}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary shrink-0"
+                      onClick={() => handleSpeak(sentence)}
+                      title="원어민 발음 듣기"
+                    >
+                      <Volume2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {showTranslations && (
+                    <div className="ml-9 p-2.5 rounded-lg bg-muted/40 border border-border/70 text-xs sm:text-sm text-muted-foreground leading-relaxed animate-in fade-in flex items-start gap-2">
+                      <span className="font-semibold text-primary/80 shrink-0 select-none">해석:</span>
+                      <span className="flex-1 text-foreground/90">
+                        {sentenceTrans || (idx === 0 && passage.translation ? passage.translation : '한국어 번역이 준비 중입니다.')}
+                      </span>
+                    </div>
+                  )}
+
+                  {(isPenMode || hasHandwriting) && (
+                    <div className="ml-9 pt-1 animate-in fade-in">
+                      <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 mb-1">
+                        <PenTool className="h-3 w-3" />
+                        손글씨 해석 및 펜 노트 ({idx + 1}번 문장)
+                      </div>
+                      <TabletPenCanvas
+                        id={`sentence-canvas-${passage.id}-${idx}`}
+                        initialDataUrl={handwritingMap[idx]}
+                        onChange={(dataUrl) => handleHandwritingChange(idx, dataUrl)}
+                        height={100}
+                        placeholderText="애플펜슬로 문장 해석이나 끊어읽기 밑줄을 적어보세요..."
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* ────────────────────────────────────
-          1. 지문 핵심 숙어 및 연어 (Phrases & Collocations) ✨
-         ──────────────────────────────────── */}
       <Card className="bg-card/90 backdrop-blur-xs border-indigo-500/30 shadow-xs mt-6">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -464,9 +591,6 @@ export function PassageDetail({
                 <BookmarkPlus className="h-4 w-4 text-indigo-500" />
                 지문 핵심 숙어 및 연어 ({extractedPhrases.length}개 자동 판독)
               </h4>
-              <p className="text-[11px] text-muted-foreground">
-                본문 문맥을 정밀 분석하여 검출된 필수 관용구 및 연어입니다. (이미 등록된 숙어는 중복 저장되지 않습니다)
-              </p>
             </div>
 
             {extractedPhrases.length > 0 && (
@@ -474,7 +598,7 @@ export function PassageDetail({
                 size="sm"
                 variant="outline"
                 onClick={handleBatchAddPhrases}
-                className="h-7 text-xs gap-1 font-bold border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                className="h-7 text-xs gap-1 font-bold border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
                 숙어 전체 추가 ({extractedPhrases.length}개)
@@ -482,164 +606,126 @@ export function PassageDetail({
             )}
           </div>
 
-          {extractedPhrases.length === 0 ? (
-            <div className="py-4 text-center text-xs text-muted-foreground bg-muted/20 rounded-lg border border-dashed border-border">
-              판독된 숙어가 없습니다. 상단의 <strong>[숙어/단어 다시 분석]</strong> 버튼을 눌러보세요.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {extractedPhrases.map((item) => {
-                const isRegistered = registeredPhraseSet.has(item.phrase.toLowerCase()) || addedPhrases.has(item.phrase);
-
-                return (
-                  <div
-                    key={item.phrase}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-indigo-500/20 bg-indigo-50/40 dark:bg-indigo-950/20 text-xs"
-                  >
-                    <div className="space-y-0.5 min-w-0 pr-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-foreground">{item.phrase}</span>
-                        <a
-                          href={getNaverDictUrl(item.phrase)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="네이버 영어사전 검색"
-                          className="text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 inline-flex items-center"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                        {isRegistered && (
-                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
-                            <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
-                          </Badge>
-                        )}
-                        {item.matchedText && item.matchedText.toLowerCase() !== item.phrase.toLowerCase() && (
-                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-1 rounded font-mono">
-                            본문: {item.matchedText}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground truncate">{item.meaning}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {extractedPhrases.map((item, idx) => {
+              const isSaved = registeredPhraseSet.has(item.phrase.toLowerCase()) || addedPhrases.has(item.phrase.toLowerCase());
+              return (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background/80 hover:border-indigo-500/40 transition-colors gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
+                        {item.phrase}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 text-muted-foreground hover:text-indigo-500 shrink-0"
+                        onClick={() => handleSpeak(item.phrase)}
+                      >
+                        <Volume2 className="h-3 w-3" />
+                      </Button>
                     </div>
-
-                    <Button
-                      size="sm"
-                      variant={isRegistered ? 'secondary' : 'default'}
-                      className="h-6 px-2 text-[10px] shrink-0 gap-1 font-semibold"
-                      disabled={isRegistered}
-                      onClick={() => handleAddPhrase(item.phrase, item.meaning)}
-                    >
-                      {isRegistered ? (
-                        <>
-                          <Check className="h-3 w-3 text-emerald-500" />
-                          등록됨
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="h-3 w-3" />
-                          숙어장 추가
-                        </>
-                      )}
-                    </Button>
+                    <p className="text-[11px] text-muted-foreground truncate">{item.meaning}</p>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <Button
+                    size="icon"
+                    variant={isSaved ? 'secondary' : 'ghost'}
+                    disabled={isSaved}
+                    onClick={() => handleAddSinglePhrase(item.phrase, item.meaning, item.exampleSentence, item.exampleTranslation)}
+                    className="h-7 w-7 shrink-0"
+                  >
+                    {isSaved ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 text-indigo-500" />
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
-      {/* ────────────────────────────────────
-          2. 지문 핵심 어휘 (단어장에 추가 지원 - 무제한 전수 표시)
-         ──────────────────────────────────── */}
-      {extractedWords.length > 0 && (
-        <Card className="bg-card/90 backdrop-blur-xs border-border mt-4">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="space-y-0.5">
-                <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
-                  지문 핵심 어휘 (총 {extractedWords.length}개 전수 판독)
-                </h4>
-                <p className="text-[11px] text-muted-foreground">
-                  사전 및 실시간 인터넷 검색을 거친 표준 영한 어휘 목록입니다. (이미 등록된 단어는 중복 저장되지 않습니다)
-                </p>
-              </div>
+      <Card className="bg-card/90 backdrop-blur-xs border-primary/20 shadow-xs">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="space-y-0.5">
+              <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                <BookOpen className="h-4 w-4 text-primary" />
+                지문 어휘 목록 ({extractedWords.length}개 추출)
+              </h4>
+              <p className="text-[11px] text-muted-foreground">
+                지문 속 모든 영어 단어의 뜻과 발음을 확인할 수 있습니다.
+              </p>
+            </div>
 
+            {extractedWords.length > 0 && (
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleBatchAddWords}
-                className="h-7 text-xs gap-1 font-bold"
+                className="h-7 text-xs gap-1 font-bold border-primary/40 text-primary hover:bg-primary/10"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
                 단어 전체 추가 ({extractedWords.length}개)
               </Button>
-            </div>
+            )}
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-              {extractedWords.map((word) => {
-                const dict = lookupWordMeaning(word) || BUILTIN_DICTIONARY[word.toLowerCase()];
-                const online = onlineMeaningMap[word];
-                const meaning = dict ? dict.meaning : (online?.meaning || '사전 검색 중...');
-                const pron = dict?.pron || online?.pron;
-                const isRegistered = registeredWordSet.has(word.toLowerCase()) || addedWords.has(word);
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {extractedWords.map((word, idx) => {
+              const dict = lookupWordMeaning(word) || BUILTIN_DICTIONARY[word.toLowerCase()];
+              const online = onlineMeaningMap[word];
+              const meaning = dict?.meaning || online?.meaning || '의미 검색 중...';
+              const isSaved = registeredWordSet.has(word.toLowerCase()) || addedWords.has(word.toLowerCase());
 
-                return (
-                  <div
-                    key={word}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-background/60 text-xs"
-                  >
-                    <div className="space-y-0.5 min-w-0 pr-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-foreground">{word}</span>
-                        <a
-                          href={getNaverDictUrl(word)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="네이버 영어사전 검색"
-                          className="text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 inline-flex items-center"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                        {isRegistered && (
-                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[9px] px-1 py-0 h-4">
-                            <Check className="h-2.5 w-2.5 mr-0.5" /> 이미 등록됨
-                          </Badge>
-                        )}
-                        {pron && (
-                          <span className="text-[10px] text-primary/80">{pron}</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground truncate">{meaning}</p>
+              return (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-2 rounded-lg border border-border/80 bg-background/80 hover:border-primary/40 transition-colors gap-1.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-xs text-foreground truncate">{word}</span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-4 w-4 text-muted-foreground hover:text-primary shrink-0"
+                        onClick={() => handleSpeak(word)}
+                      >
+                        <Volume2 className="h-3 w-3" />
+                      </Button>
                     </div>
-
-                    <Button
-                      size="sm"
-                      variant={isRegistered ? 'secondary' : 'outline'}
-                      className="h-6 px-2 text-[10px] shrink-0 gap-1 font-semibold"
-                      disabled={isRegistered}
-                      onClick={() => handleAddWord(word, meaning)}
-                    >
-                      {isRegistered ? (
-                        <>
-                          <Check className="h-3 w-3 text-emerald-500" />
-                          등록됨
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="h-3 w-3" />
-                          단어장 추가
-                        </>
-                      )}
-                    </Button>
+                    <p className="text-[10px] text-muted-foreground truncate">{meaning}</p>
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
+                  <Button
+                    size="icon"
+                    variant={isSaved ? 'secondary' : 'ghost'}
+                    disabled={isSaved}
+                    onClick={() => handleAddSingleWord(word, meaning)}
+                    className="h-6 w-6 shrink-0"
+                    title={isSaved ? '이미 등록됨' : '단어장에 추가'}
+                  >
+                    {isSaved ? (
+                      <Check className="h-3 w-3 text-emerald-500" />
+                    ) : (
+                      <Plus className="h-3 w-3 text-primary" />
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

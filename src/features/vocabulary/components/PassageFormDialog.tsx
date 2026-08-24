@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { CreatePassageInput } from '../types/passageTypes';
+import { translatePassageWithSentences } from '@/lib/ai/geminiService';
 
 interface PassageFormDialogProps {
   open: boolean;
@@ -37,32 +38,70 @@ export function PassageFormDialog({
   mode = 'create',
 }: PassageFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationSuccessMessage, setTranslationSuccessMessage] = useState('');
   const [error, setError] = useState('');
 
   const [title, setTitle] = useState(initialData?.title ?? '');
   const [content, setContent] = useState(initialData?.content ?? '');
   const [translation, setTranslation] = useState(initialData?.translation ?? '');
+  const [sentenceTranslations, setSentenceTranslations] = useState<string[]>(
+    initialData?.sentenceTranslations ?? []
+  );
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 2);
   const [source, setSource] = useState(initialData?.source ?? '');
 
   useEffect(() => {
     if (open) {
       setError('');
+      setTranslationSuccessMessage('');
       if (initialData) {
         setTitle(initialData.title ?? '');
         setContent(initialData.content ?? '');
         setTranslation(initialData.translation ?? '');
+        setSentenceTranslations(initialData.sentenceTranslations ?? []);
         setDifficulty(initialData.difficulty ?? 2);
         setSource(initialData.source ?? '');
       } else {
         setTitle('');
         setContent('');
         setTranslation('');
+        setSentenceTranslations([]);
         setDifficulty(2);
         setSource('교재 지문');
       }
     }
   }, [open, initialData]);
+
+  // AI 자동 번역 및 문장별 분석 실행
+  const handleAiTranslate = async () => {
+    const cleanContent = content.trim();
+    if (!cleanContent) {
+      setError('먼저 영어 본문 내용을 입력해주세요.');
+      return;
+    }
+
+    setError('');
+    setIsTranslating(true);
+    setTranslationSuccessMessage('');
+
+    try {
+      const res = await translatePassageWithSentences(cleanContent);
+      if (res && res.fullTranslation) {
+        setTranslation(res.fullTranslation);
+        if (res.sentenceTranslations && res.sentenceTranslations.length > 0) {
+          setSentenceTranslations(res.sentenceTranslations);
+        }
+        setTranslationSuccessMessage('✨ AI 번역 및 문장별 1:1 해석이 생성되었습니다.');
+      } else {
+        setError('AI 번역을 생성하지 못했습니다. 직접 입력해주세요.');
+      }
+    } catch {
+      setError('AI 번역 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +121,7 @@ export function PassageFormDialog({
         title: cleanTitle,
         content: cleanContent,
         translation: translation.trim() || undefined,
+        sentenceTranslations: sentenceTranslations.length > 0 ? sentenceTranslations : undefined,
         difficulty,
         source: source.trim() || '교재 지문',
       });
@@ -134,24 +174,61 @@ export function PassageFormDialog({
             </div>
           </div>
 
-          {/* 영어 본문 */}
+          {translationSuccessMessage && (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>{translationSuccessMessage}</span>
+            </div>
+          )}
+
+          {/* 영어 본문 & AI 번역 버튼 */}
           <div className="space-y-1.5">
-            <Label htmlFor="pform-content">
-              영어 본문 <span className="text-destructive">*</span>
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pform-content">
+                영어 본문 <span className="text-destructive">*</span>
+              </Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={isTranslating || !content.trim()}
+                onClick={handleAiTranslate}
+                className="h-7 px-2.5 text-xs font-bold gap-1 border border-primary/30 text-primary hover:bg-primary/10"
+              >
+                {isTranslating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                )}
+                AI 자동 번역 & 문장 분석
+              </Button>
+            </div>
             <Textarea
               id="pform-content"
               placeholder="영어 문장 및 단락을 입력하세요..."
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => {
+                setContent(e.target.value);
+                setTranslationSuccessMessage('');
+              }}
               rows={8}
               className="text-xs leading-relaxed font-sans"
             />
+            <p className="text-[11px] text-muted-foreground">
+              본문을 입력하고 <strong className="text-primary font-semibold">AI 자동 번역 & 문장 분석</strong>을 누르면 전체 번역 및 문장별 해석이 자동 완성됩니다.
+            </p>
           </div>
 
           {/* 한글 해석 */}
           <div className="space-y-1.5">
-            <Label htmlFor="pform-trans">한글 번역/해석 (선택)</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pform-trans">한글 번역/해석 (선택)</Label>
+              {sentenceTranslations.length > 0 && (
+                <span className="text-[10px] text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded">
+                  {sentenceTranslations.length}개 문장 1:1 해석 준비됨
+                </span>
+              )}
+            </div>
             <Textarea
               id="pform-trans"
               placeholder="지문의 한국어 번역이나 해석을 입력하세요..."
