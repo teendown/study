@@ -8,6 +8,7 @@ import {
   Sparkles,
   FileText,
   List,
+  BookmarkPlus,
 } from 'lucide-react';
 import {
   Dialog,
@@ -19,14 +20,17 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { recognizeAndExtractWords } from '../services/ocrService';
 import { OcrCandidateList } from './OcrCandidateList';
+import { OcrPhraseList } from './OcrPhraseList';
 import { OcrPassageReview } from './OcrPassageReview';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
+import type { ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 import type { OcrStep } from '../types';
 
 interface OcrModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaveWords: (words: ExtractedWordCandidate[]) => Promise<void>;
+  onSavePhrases?: (phrases: ExtractedPhraseResult[]) => Promise<void>;
   onSavePassage?: (passageData: { title: string; content: string; source: string }) => Promise<void>;
 }
 
@@ -34,13 +38,15 @@ export function OcrModal({
   open,
   onOpenChange,
   onSaveWords,
+  onSavePhrases,
   onSavePassage,
 }: OcrModalProps) {
   const [step, setStep] = useState<OcrStep>('upload');
-  const [activeView, setActiveView] = useState<'words' | 'passage'>('words');
+  const [activeView, setActiveView] = useState<'words' | 'phrases' | 'passage'>('words');
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
   const [candidates, setCandidates] = useState<ExtractedWordCandidate[]>([]);
+  const [phraseCandidates, setPhraseCandidates] = useState<ExtractedPhraseResult[]>([]);
   const [passageText, setPassageText] = useState('');
   const [sentences, setSentences] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +61,7 @@ export function OcrModal({
       setProgress(0);
       setStatusText('');
       setCandidates([]);
+      setPhraseCandidates([]);
       setPassageText('');
       setSentences([]);
       setError(null);
@@ -78,16 +85,21 @@ export function OcrModal({
         },
       });
 
-      if (!result.rawText || result.candidates.length === 0) {
+      if (!result.rawText || (result.candidates.length === 0 && result.phraseCandidates.length === 0)) {
         setError('이미지에서 영문 텍스트를 찾지 못했습니다. 글자가 선명한 이미지를 선택해주세요.');
         setStep('upload');
         return;
       }
 
       setCandidates(result.candidates);
+      setPhraseCandidates(result.phraseCandidates);
       setPassageText(result.passageText);
       setSentences(result.sentences);
       setStep('review');
+      // 숙어가 있으면 숙어 개수 표시
+      if (result.phraseCandidates.length > 0) {
+        setActiveView('words');
+      }
     } catch (err) {
       console.error('OCR error:', err);
       setError('글자 인식 중 오류가 발생했습니다. 다시 시도해주세요.');
@@ -106,6 +118,14 @@ export function OcrModal({
     handleOpenChange(false);
   };
 
+  // 선택 숙어 일괄 저장
+  const handleSaveSelectedPhrases = async (selected: ExtractedPhraseResult[]) => {
+    if (onSavePhrases) {
+      await onSavePhrases(selected);
+    }
+    handleOpenChange(false);
+  };
+
   // 본문 저장
   const handleSavePassage = async (data: { title: string; content: string; source: string }) => {
     if (onSavePassage) {
@@ -121,9 +141,9 @@ export function OcrModal({
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5 text-primary" />
             {step === 'review' ? (
-              <div className="flex items-center justify-between flex-1 pr-4">
+              <div className="flex items-center justify-between flex-1 pr-4 flex-wrap gap-2">
                 <span>OCR 추출 결과</span>
-                {/* 단어 모드 / 본문 모드 전환 탭 */}
+                {/* 단어 / 숙어 / 본문 3단 전환 탭 */}
                 <div className="flex items-center rounded-lg bg-muted p-0.5 text-xs font-semibold">
                   <button
                     type="button"
@@ -139,6 +159,18 @@ export function OcrModal({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setActiveView('phrases')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
+                      activeView === 'phrases'
+                        ? 'bg-background text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <BookmarkPlus className="h-3.5 w-3.5" />
+                    숙어 ({phraseCandidates.length})
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveView('passage')}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
                       activeView === 'passage'
@@ -147,7 +179,7 @@ export function OcrModal({
                     }`}
                   >
                     <FileText className="h-3.5 w-3.5" />
-                    본문 지문
+                    본문
                   </button>
                 </div>
               </div>
@@ -187,17 +219,17 @@ export function OcrModal({
               </h4>
               <p className="text-xs text-muted-foreground max-w-xs mx-auto">
                 스마트폰으로 찍은 사진의 그림자를 자동 제거하고, 선명도를 극대화하여 
-                <strong> 단어 및 본문 전체</strong>를 고정밀 인식합니다.
+                <strong> 단어, 필수 숙어 및 본문 전체</strong>를 고정밀 인식합니다.
               </p>
             </div>
 
             {/* 고정밀 개선 안내 팁 */}
             <div className="p-3.5 rounded-xl bg-muted/50 border border-border text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground flex items-center gap-1">
-                <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 고정밀 OCR 전처리 적용됨
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 고정밀 OCR &amp; 숙어/단어 추출 엔진
               </p>
-              <p>• <strong>자동 대비 강화 &amp; 그림자 제거</strong>로 흐린 사진도 선명하게 판독합니다.</p>
-              <p>• <strong>단어 추출</strong>뿐만 아니라 <strong>지문 본문 통째 읽기/저장</strong>도 지원합니다.</p>
+              <p>• <strong>단어 전수 추출</strong>뿐만 아니라 <strong>지문 내 필수 숙어/연어 자동 판독</strong> 지원</p>
+              <p>• <strong>완성형 본문 저장</strong>으로 지문을 통째로 문장별 끊어 읽기 학습 가능</p>
             </div>
           </div>
         )}
@@ -214,7 +246,7 @@ export function OcrModal({
             <div className="space-y-1.5">
               <h4 className="font-bold text-base">{statusText || '이미지 분석 및 보정 중...'}</h4>
               <p className="text-xs text-muted-foreground">
-                화질 개선, 그림자 제거, Tesseract 고정밀 분석을 수행하고 있습니다.
+                화질 개선, 그림자 제거, 단어 및 숙어 패턴 분석을 수행하고 있습니다.
               </p>
             </div>
 
@@ -226,12 +258,20 @@ export function OcrModal({
         )}
 
         {/* ────────────────────────────────────
-            3. 결과 검수 단계 (단어 탭 vs 본문 탭)
+            3. 결과 검수 단계 (단어 vs 숙어 vs 본문)
            ──────────────────────────────────── */}
         {step === 'review' && activeView === 'words' && (
           <OcrCandidateList
             initialCandidates={candidates}
             onSaveSelected={handleSaveSelectedWords}
+            onCancel={() => setStep('upload')}
+          />
+        )}
+
+        {step === 'review' && activeView === 'phrases' && (
+          <OcrPhraseList
+            initialPhrases={phraseCandidates}
+            onSaveSelected={handleSaveSelectedPhrases}
             onCancel={() => setStep('upload')}
           />
         )}

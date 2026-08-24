@@ -39,6 +39,7 @@ import { BookOpen, Layers, Camera, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OcrModal } from '@/features/ocr';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
+import type { ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 
 export default function VocabularyPage() {
   const [activeTab, setActiveTab] = useState<'words' | 'phrases' | 'passages'>('words');
@@ -180,6 +181,27 @@ export default function VocabularyPage() {
     await autoFillMissingVocabulariesAction();
     await loadVocabularies();
     alert(`총 ${extracted.length}개의 단어가 등록되었습니다! 🎉`);
+  };
+
+  // OCR 추출 숙어 일괄 저장 핸들러
+  const handleOcrSavePhrases = async (extracted: ExtractedPhraseResult[]) => {
+    for (const item of extracted) {
+      const input: CreatePhraseInput = {
+        phrase: item.phrase,
+        meaning: item.meaning || '의미 검색 필요',
+        exampleSentence: item.matchedText ? `(본문 문맥: ${item.matchedText})` : '',
+        exampleTranslation: '',
+        difficulty: item.difficulty || 2,
+        source: 'OCR 사진 수집',
+      };
+
+      try {
+        await addPhraseAction(input, true);
+      } catch {}
+    }
+
+    await loadPhrases();
+    alert(`총 ${extracted.length}개의 숙어가 등록되었습니다! 🔖`);
   };
 
   // OCR 추출 본문 저장 핸들러
@@ -405,6 +427,46 @@ export default function VocabularyPage() {
     } catch {}
   };
 
+  // 지문에서 단어 일괄 추가
+  const handleBatchAddWordsFromPassage = async (items: Array<{ word: string; meaning: string }>) => {
+    for (const item of items) {
+      try {
+        await addVocabularyAction({
+          word: item.word,
+          meaning: item.meaning,
+          partOfSpeech: 'n.',
+          pronunciation: '',
+          exampleSentence: '',
+          exampleTranslation: '',
+          synonyms: '',
+          antonyms: '',
+          difficulty: 2,
+          source: selectedPassage ? `${selectedPassage.title} 어휘` : '지문 추출 어휘',
+        }, true);
+      } catch {}
+    }
+    await loadVocabularies();
+    alert(`총 ${items.length}개의 단어가 단어장에 추가되었습니다! 📚`);
+  };
+
+  // 지문에서 숙어 일괄 추가
+  const handleBatchAddPhrasesFromPassage = async (items: Array<{ phrase: string; meaning: string }>) => {
+    for (const item of items) {
+      try {
+        await addPhraseAction({
+          phrase: item.phrase,
+          meaning: item.meaning,
+          exampleSentence: '',
+          exampleTranslation: '',
+          difficulty: 2,
+          source: selectedPassage ? `${selectedPassage.title} 숙어` : '지문 추출 숙어',
+        }, true);
+      } catch {}
+    }
+    await loadPhrases();
+    alert(`총 ${items.length}개의 숙어가 숙어장에 추가되었습니다! 🔖`);
+  };
+
   return (
     <div className="space-y-6">
       {/* ────────────────────────────────────
@@ -614,6 +676,8 @@ export default function VocabularyPage() {
               onDelete={() => handlePassageDelete(selectedPassage.id)}
               onAddWordToVocab={handleAddWordFromPassage}
               onAddPhraseToVocab={handleAddPhraseFromPassage}
+              onBatchAddWordsToVocab={handleBatchAddWordsFromPassage}
+              onBatchAddPhrasesToVocab={handleBatchAddPhrasesFromPassage}
             />
           ) : (
             <PassageList
@@ -641,11 +705,12 @@ export default function VocabularyPage() {
         </>
       )}
 
-      {/* OCR 모달 (단어 및 본문 지문 동시 지원) */}
+      {/* OCR 모달 (단어, 숙어 및 본문 지문 동시 지원) */}
       <OcrModal
         open={isOcrOpen}
         onOpenChange={setIsOcrOpen}
         onSaveWords={handleOcrSaveWords}
+        onSavePhrases={handleOcrSavePhrases}
         onSavePassage={handleOcrSavePassage}
       />
     </div>

@@ -5,6 +5,7 @@
 
 import { createWorker } from 'tesseract.js';
 import { extractEnglishWords, type ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
+import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
 import { preprocessImageForOcr } from '@/lib/ocr/imagePreprocessor';
 import { reconstructPassageText, splitPassageIntoSentences } from '@/lib/ocr/textCleaner';
@@ -19,10 +20,11 @@ export interface OcrRecognitionResult {
   passageText: string; // 완성형 본문 문맥 텍스트
   sentences: string[]; // 문장별 분리 목록
   candidates: ExtractedWordCandidate[];
+  phraseCandidates: ExtractedPhraseResult[]; // 추출된 숙어/연어 목록
 }
 
 /**
- * 이미지 전처리(그림자 제거/대비 극대화/선명화) + Tesseract 최적화 + 사후 오탈자 교정 통합 파이프라인
+ * 이미지 전처리(그림자 제거/대비 극대화/선명화) + Tesseract 최적화 + 사후 오탈자 교정 + 단어/숙어 통합 추출 파이프라인
  */
 export async function recognizeAndExtractWords({
   imageSource,
@@ -51,7 +53,7 @@ export async function recognizeAndExtractWords({
 
   // Tesseract 파라미터 최적화 (영어 교재/지문 블록 인식 최적화)
   await worker.setParameters({
-    tessedit_pageseg_mode: '3' as unknown as import('tesseract.js').PSM, // Fully automatic page segmentation
+    tessedit_pageseg_mode: '3' as unknown as import('tesseract.js').PSM,
     tessedit_char_whitelist: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?;:\'"-()/%$#@ ',
   });
 
@@ -62,15 +64,19 @@ export async function recognizeAndExtractWords({
   await worker.terminate();
 
   // 4단계: 사후 텍스트 정제 및 본문 문맥 복원
-  onProgress?.(75, '문맥 복원 및 오탈자 교정 중...');
+  onProgress?.(70, '문맥 복원 및 오탈자 교정 중...');
   const passageText = reconstructPassageText(rawText);
   const sentences = splitPassageIntoSentences(passageText);
 
-  // 5단계: 단어 추출 및 사전 매핑
+  // 5단계: 숙어/연어 정밀 추출 (원문 및 복원문 전체 대상)
+  onProgress?.(75, '지문 내 필수 숙어 및 연어 자동 판독 중...');
+  const phraseCandidates = extractEnglishPhrases(passageText || rawText);
+
+  // 6단계: 단어 추출 및 사전 매핑
   onProgress?.(80, '핵심 영어 어휘 추출 및 사전 매핑 중...');
   const candidates = extractEnglishWords(passageText || rawText);
 
-  // 6단계: 뜻 누락 단어 온라인 사전 일괄 자동 보충
+  // 7단계: 뜻 누락 단어 온라인 사전 일괄 자동 보충
   const wordsToLookup = candidates.filter(
     (c) => !c.meaning || c.meaning.trim() === '' || c.meaning === '의미 미입력' || c.meaning === '의미 검색 필요'
   );
@@ -109,5 +115,6 @@ export async function recognizeAndExtractWords({
     passageText,
     sentences,
     candidates,
+    phraseCandidates,
   };
 }
