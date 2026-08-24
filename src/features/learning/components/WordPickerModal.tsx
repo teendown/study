@@ -294,52 +294,62 @@ export function WordPickerModal({
                         <div
                           key={vocab.id}
                           onClick={() => toggleSelect(vocab.id)}
-                          className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
                             isSelected
                               ? 'border-primary/50 bg-primary/10 shadow-xs'
-                              : 'border-border/70 hover:border-border hover:bg-muted/30'
+                              : 'border-border/70 hover:border-border hover:bg-muted/30 bg-card'
                           }`}
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="text-primary shrink-0">
-                              {isSelected ? (
-                                <CheckSquare className="h-4.5 w-4.5 fill-primary text-background" />
-                              ) : (
-                                <Square className="h-4.5 w-4.5 text-muted-foreground/60" />
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-sm text-foreground truncate">
+                          {/* 체크박스 */}
+                          <div className="text-primary shrink-0 pt-0.5">
+                            {isSelected ? (
+                              <CheckSquare className="h-5 w-5 fill-primary text-background" />
+                            ) : (
+                              <Square className="h-5 w-5 text-muted-foreground/60" />
+                            )}
+                          </div>
+
+                          {/* 단어 상세 콘텐츠 (flex-1 min-w-0 로 가려짐 방지) */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            {/* 1행: 단어 + 품사 + 발음 듣기 + 별점 */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-bold text-sm sm:text-base text-foreground truncate">
                                   {vocab.word}
                                 </span>
                                 {vocab.partOfSpeech && (
-                                  <span className="text-[10px] text-muted-foreground">
+                                  <span className="text-[10px] text-muted-foreground bg-muted/80 px-1.5 py-0.5 rounded font-mono shrink-0">
                                     {vocab.partOfSpeech}
                                   </span>
                                 )}
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-5 w-5 text-muted-foreground hover:text-primary"
+                                  className="h-5 w-5 text-muted-foreground hover:text-primary shrink-0"
                                   onClick={(e) => handleSpeak(e, vocab.word)}
                                 >
-                                  <Volume2 className="h-3 w-3" />
+                                  <Volume2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
-                              <p className="text-xs text-muted-foreground truncate">{vocab.meaning}</p>
-                            </div>
-                          </div>
 
-                          <div className="text-right shrink-0 flex items-center gap-2">
-                            {vocab.source && (
-                              <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md hidden sm:inline">
-                                {vocab.source}
+                              <span className="text-xs text-amber-600 font-semibold shrink-0 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                ⭐{vocab.difficulty}
                               </span>
+                            </div>
+
+                            {/* 2행: 한국어 뜻 (줄바꿈 허용 및 선명한 가독성) */}
+                            <p className="text-xs text-foreground/90 font-medium leading-relaxed break-words line-clamp-2">
+                              {vocab.meaning || '뜻 없음'}
+                            </p>
+
+                            {/* 3행: 출처 태그 (하단에 안전하게 배치) */}
+                            {vocab.source && (
+                              <div className="pt-0.5">
+                                <span className="text-[10px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md inline-block truncate max-w-[260px] sm:max-w-[360px]">
+                                  {vocab.source}
+                                </span>
+                              </div>
                             )}
-                            <span className="text-[10px] text-amber-600 font-semibold">
-                              ⭐{vocab.difficulty}
-                            </span>
                           </div>
                         </div>
                       );
