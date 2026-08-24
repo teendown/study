@@ -4,5 +4,7 @@ export { VocabularyDetail } from './VocabularyDetail';
 export { PhraseList } from './PhraseList';
 export { PhraseFormDialog } from './PhraseFormDialog';
 export { PhraseDetail } from './PhraseDetail';
+export { PassageList } from './PassageList';
+export { PassageDetail } from './PassageDetail';
+export { PassageFormDialog } from './PassageFormDialog';
 export { DuplicateChoiceDialog, type DuplicateActionType } from './DuplicateChoiceDialog';
-

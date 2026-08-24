@@ -8,6 +8,9 @@ import {
   PhraseList,
   PhraseFormDialog,
   PhraseDetail,
+  PassageList,
+  PassageDetail,
+  PassageFormDialog,
   getVocabulariesAction,
   addVocabularyAction,
   updateVocabularyAction,
@@ -20,6 +23,10 @@ import {
   deletePhraseAction,
   batchDeletePhrasesAction,
   autoFillMissingPhrasesAction,
+  getPassagesAction,
+  addPassageAction,
+  updatePassageAction,
+  deletePassageAction,
   type VocabularyWithItem,
   type VocabularyListResult,
   type CreateVocabularyInput,
@@ -27,13 +34,14 @@ import {
   type PhraseListResult,
   type CreatePhraseInput,
 } from '@/features/vocabulary';
-import { BookOpen, Layers, Camera } from 'lucide-react';
+import type { PassageItem, PassageListResult, CreatePassageInput } from '@/features/vocabulary/types/passageTypes';
+import { BookOpen, Layers, Camera, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OcrModal } from '@/features/ocr';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 
 export default function VocabularyPage() {
-  const [activeTab, setActiveTab] = useState<'words' | 'phrases'>('words');
+  const [activeTab, setActiveTab] = useState<'words' | 'phrases' | 'passages'>('words');
 
   // 단어 상태
   const [vocabData, setVocabData] = useState<VocabularyListResult>({
@@ -64,6 +72,20 @@ export default function VocabularyPage() {
   const [isPhraseFormOpen, setIsPhraseFormOpen] = useState(false);
   const [phraseFormMode, setPhraseFormMode] = useState<'create' | 'edit'>('create');
   const [phraseEditData, setPhraseEditData] = useState<Partial<CreatePhraseInput> | undefined>();
+
+  // 본문/독해 지문 상태
+  const [passageData, setPassageData] = useState<PassageListResult>({
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 20,
+    totalPages: 1,
+  });
+  const [isPassageLoading, setIsPassageLoading] = useState(false);
+  const [selectedPassage, setSelectedPassage] = useState<PassageItem | null>(null);
+  const [isPassageFormOpen, setIsPassageFormOpen] = useState(false);
+  const [passageFormMode, setPassageFormMode] = useState<'create' | 'edit'>('create');
+  const [passageEditData, setPassageEditData] = useState<Partial<CreatePassageInput> | undefined>();
 
   // OCR 모달 상태
   const [isOcrOpen, setIsOcrOpen] = useState(false);
@@ -98,26 +120,41 @@ export default function VocabularyPage() {
     }
   }, []);
 
+  // 지문 목록 로드
+  const loadPassages = useCallback(async (query: string = '') => {
+    setIsPassageLoading(true);
+    try {
+      const res = await getPassagesAction(query);
+      if (res.success && res.data) {
+        setPassageData(res.data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsPassageLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const initData = async () => {
       if (activeTab === 'words') {
         await loadVocabularies();
-        // 백그라운드 자동 보강: 뜻이 누락된 단어가 있으면 자동 채우기 실행
         const fillRes = await autoFillMissingVocabulariesAction();
         if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
           await loadVocabularies();
         }
-      } else {
+      } else if (activeTab === 'phrases') {
         await loadPhrases();
         const fillRes = await autoFillMissingPhrasesAction();
         if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
           await loadPhrases();
         }
+      } else if (activeTab === 'passages') {
+        await loadPassages();
       }
     };
     initData();
-  }, [activeTab, loadVocabularies, loadPhrases]);
-
+  }, [activeTab, loadVocabularies, loadPhrases, loadPassages]);
 
   // OCR 추출 단어 일괄 저장 핸들러
   const handleOcrSaveWords = async (extracted: ExtractedWordCandidate[]) => {
@@ -126,7 +163,7 @@ export default function VocabularyPage() {
         word: item.word,
         meaning: item.meaning || '',
         partOfSpeech: item.partOfSpeech || '',
-        pronunciation: '',
+        pronunciation: item.pronunciation || '',
         exampleSentence: '',
         exampleTranslation: '',
         synonyms: '',
@@ -136,14 +173,28 @@ export default function VocabularyPage() {
       };
 
       try {
-        await addVocabularyAction(input);
+        await addVocabularyAction(input, true);
       } catch {}
     }
 
-    // 저장 후 뜻 누락 단어 자동 보강
     await autoFillMissingVocabulariesAction();
-    loadVocabularies();
-    alert(`총 ${extracted.length}개의 단어가 등록 및 사전 자동 완성이 완료되었습니다! 🎉`);
+    await loadVocabularies();
+    alert(`총 ${extracted.length}개의 단어가 등록되었습니다! 🎉`);
+  };
+
+  // OCR 추출 본문 저장 핸들러
+  const handleOcrSavePassage = async (data: { title: string; content: string; source: string }) => {
+    try {
+      const res = await addPassageAction(data);
+      if (res.success && res.data) {
+        await loadPassages();
+        setActiveTab('passages');
+        setSelectedPassage(res.data);
+        alert(`"${data.title}" 본문이 성공적으로 등록되었습니다! 📖`);
+      }
+    } catch {
+      alert('지문 저장 중 오류가 발생했습니다.');
+    }
   };
 
   // 단어 CRUD 핸들러
@@ -169,12 +220,11 @@ export default function VocabularyPage() {
     }
   };
 
-  // 단어 단일 삭제
   const handleVocabDelete = async (id: string) => {
     if (!confirm('이 단어를 삭제하시겠습니까?')) return;
     try {
       await deleteVocabularyAction(id);
-      loadVocabularies();
+      await loadVocabularies();
       if (selectedVocab?.id === id) {
         setSelectedVocab(null);
       }
@@ -183,12 +233,11 @@ export default function VocabularyPage() {
     }
   };
 
-  // 단어 일괄 삭제
   const handleBatchDeleteVocabs = async (ids: string[]) => {
     if (!confirm(`선택한 ${ids.length}개의 단어를 삭제하시겠습니까?`)) return;
     try {
       await batchDeleteVocabulariesAction(ids);
-      loadVocabularies();
+      await loadVocabularies();
       if (selectedVocab && ids.includes(selectedVocab.id)) {
         setSelectedVocab(null);
       }
@@ -197,7 +246,6 @@ export default function VocabularyPage() {
     }
   };
 
-  // 저장된 단어 중 누락된 뜻/정보 일괄 자동 채우기
   const handleAutoFillMissingVocabs = async () => {
     setIsVocabAutoFilling(true);
     try {
@@ -241,12 +289,11 @@ export default function VocabularyPage() {
     }
   };
 
-  // 숙어 단일 삭제
   const handlePhraseDelete = async (id: string) => {
     if (!confirm('이 숙어를 삭제하시겠습니까?')) return;
     try {
       await deletePhraseAction(id);
-      loadPhrases();
+      await loadPhrases();
       if (selectedPhrase?.id === id) {
         setSelectedPhrase(null);
       }
@@ -255,55 +302,109 @@ export default function VocabularyPage() {
     }
   };
 
-  // 숙어 일괄 삭제
   const handleBatchPhraseDelete = async (ids: string[]) => {
     if (!confirm(`선택한 ${ids.length}개의 숙어를 모두 삭제하시겠습니까?`)) return;
     try {
-      const res = await batchDeletePhrasesAction(ids);
-      if (res.success) {
-        loadPhrases();
-        if (selectedPhrase && ids.includes(selectedPhrase.id)) {
-          setSelectedPhrase(null);
-        }
+      await batchDeletePhrasesAction(ids);
+      await loadPhrases();
+      if (selectedPhrase && ids.includes(selectedPhrase.id)) {
+        setSelectedPhrase(null);
       }
     } catch {
-      alert('일괄 삭제 중 오류가 발생했습니다.');
+      alert('숙어 일괄 삭제에 실패했습니다.');
     }
   };
 
-  // 저장된 숙어 중 누락된 뜻/예문 일괄 자동 채우기
   const handleAutoFillMissingPhrases = async () => {
     setIsPhraseAutoFilling(true);
     try {
       const res = await autoFillMissingPhrasesAction();
       if (res.success) {
         await loadPhrases();
-        if (res.data.updatedCount > 0) {
-          alert(`🎉 ${res.data.updatedCount}개의 숙어 뜻과 예문을 사전에서 자동으로 채워 넣었습니다!`);
+        const count = res.data?.updatedCount ?? 0;
+        if (count > 0) {
+          alert(`🎉 ${count}개의 숙어 뜻 및 예문을 사전에서 자동으로 채워 넣었습니다!`);
         } else {
-          alert('모든 숙어의 뜻과 예문이 이미 등록되어 있습니다.');
+          alert('모든 숙어의 뜻과 정보가 이미 등록되어 있습니다.');
         }
       }
     } catch {
-      alert('숙어 정보 자동 채우기 중 오류가 발생했습니다.');
+      alert('숙어 자동 채우기 중 오류가 발생했습니다.');
     } finally {
       setIsPhraseAutoFilling(false);
     }
   };
 
+  // 지문 CRUD 핸들러
+  const handlePassageFormSubmit = async (input: CreatePassageInput) => {
+    if (passageFormMode === 'create') {
+      const res = await addPassageAction(input);
+      if (res.success) {
+        setIsPassageFormOpen(false);
+        await loadPassages();
+        if (res.data) setSelectedPassage(res.data);
+      } else {
+        throw new Error(res.error || '지문 추가 실패');
+      }
+    } else if (passageFormMode === 'edit' && selectedPassage) {
+      const res = await updatePassageAction(selectedPassage.id, input);
+      if (res.success) {
+        if (res.data) setSelectedPassage(res.data);
+        setIsPassageFormOpen(false);
+        await loadPassages();
+      } else {
+        throw new Error(res.error || '지문 수정 실패');
+      }
+    }
+  };
+
+  const handlePassageDelete = async (id: string) => {
+    if (!confirm('이 독해 지문을 삭제하시겠습니까?')) return;
+    try {
+      await deletePassageAction(id);
+      await loadPassages();
+      if (selectedPassage?.id === id) {
+        setSelectedPassage(null);
+      }
+    } catch {
+      alert('지문 삭제에 실패했습니다.');
+    }
+  };
+
+  // 지문에서 단어 바로 단어장에 추가
+  const handleAddWordFromPassage = async (word: string, meaning: string) => {
+    try {
+      await addVocabularyAction({
+        word,
+        meaning,
+        partOfSpeech: 'n.',
+        pronunciation: '',
+        exampleSentence: '',
+        exampleTranslation: '',
+        synonyms: '',
+        antonyms: '',
+        difficulty: 2,
+        source: selectedPassage ? `${selectedPassage.title} 어휘` : '지문 추출 어휘',
+      }, true);
+      await loadVocabularies();
+    } catch {}
+  };
+
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
-      {/* 상단 탭 전환: [영단어장] / [영어 숙어장] */}
-      <div className="flex items-center justify-between border-b border-border/80 pb-3">
+    <div className="space-y-6">
+      {/* ────────────────────────────────────
+          헤더 및 3단 탭 네비게이션
+         ──────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">어휘 관리</h2>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">단어 및 본문 학습장</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            단어와 숙어를 등록하고 학습하세요
+            단어, 숙어, 독해 지문을 등록하고 체계적으로 학습하세요
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* OCR 사진 단어 추출 버튼 */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* OCR 사진 추출 버튼 */}
           <Button
             variant="outline"
             size="sm"
@@ -311,34 +412,48 @@ export default function VocabularyPage() {
             onClick={() => setIsOcrOpen(true)}
           >
             <Camera className="h-4 w-4" />
-            <span className="hidden sm:inline">사진 단어 추출 (OCR)</span>
+            <span className="hidden sm:inline">사진 OCR 추출</span>
           </Button>
 
-          {/* 탭 전환 */}
-          <div className="flex gap-1 p-1 bg-muted/60 rounded-xl">
+          {/* 3단 탭 전환: 단어 / 숙어 / 본문 지문 */}
+          <div className="flex gap-1 p-1 bg-muted/70 backdrop-blur-xs rounded-xl">
             <Button
               variant={activeTab === 'words' ? 'default' : 'ghost'}
               size="sm"
-              className="font-bold gap-1.5 rounded-lg"
+              className="font-bold gap-1.5 rounded-lg text-xs"
               onClick={() => {
                 setActiveTab('words');
                 setSelectedVocab(null);
               }}
             >
-              <BookOpen className="h-4 w-4" />
+              <BookOpen className="h-3.5 w-3.5" />
               단어 ({vocabData.total})
             </Button>
+
             <Button
               variant={activeTab === 'phrases' ? 'default' : 'ghost'}
               size="sm"
-              className="font-bold gap-1.5 rounded-lg"
+              className="font-bold gap-1.5 rounded-lg text-xs"
               onClick={() => {
                 setActiveTab('phrases');
                 setSelectedPhrase(null);
               }}
             >
-              <Layers className="h-4 w-4" />
+              <Layers className="h-3.5 w-3.5" />
               숙어 ({phraseData.total})
+            </Button>
+
+            <Button
+              variant={activeTab === 'passages' ? 'default' : 'ghost'}
+              size="sm"
+              className="font-bold gap-1.5 rounded-lg text-xs"
+              onClick={() => {
+                setActiveTab('passages');
+                setSelectedPassage(null);
+              }}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              본문/지문 ({passageData.total})
             </Button>
           </div>
         </div>
@@ -460,11 +575,62 @@ export default function VocabularyPage() {
         </>
       )}
 
-      {/* OCR 모달 */}
+      {/* ────────────────────────────────────
+          3. 영어 본문/독해 지문 뷰 ✨
+         ──────────────────────────────────── */}
+      {activeTab === 'passages' && (
+        <>
+          {selectedPassage ? (
+            <PassageDetail
+              passage={selectedPassage}
+              onBack={() => setSelectedPassage(null)}
+              onEdit={() => {
+                setPassageFormMode('edit');
+                setPassageEditData({
+                  title: selectedPassage.title,
+                  content: selectedPassage.content,
+                  translation: selectedPassage.translation || undefined,
+                  difficulty: selectedPassage.difficulty,
+                  grade: selectedPassage.grade || undefined,
+                  source: selectedPassage.source,
+                });
+                setIsPassageFormOpen(true);
+              }}
+              onDelete={() => handlePassageDelete(selectedPassage.id)}
+              onAddWordToVocab={handleAddWordFromPassage}
+            />
+          ) : (
+            <PassageList
+              initialData={passageData}
+              onAddClick={() => {
+                setPassageFormMode('create');
+                setPassageEditData(undefined);
+                setIsPassageFormOpen(true);
+              }}
+              onOcrClick={() => setIsOcrOpen(true)}
+              onItemClick={(p) => setSelectedPassage(p)}
+              onDeleteClick={handlePassageDelete}
+              onSearch={(q) => loadPassages(q)}
+              isLoading={isPassageLoading}
+            />
+          )}
+
+          <PassageFormDialog
+            open={isPassageFormOpen}
+            onOpenChange={setIsPassageFormOpen}
+            onSubmit={handlePassageFormSubmit}
+            initialData={passageEditData}
+            mode={passageFormMode}
+          />
+        </>
+      )}
+
+      {/* OCR 모달 (단어 및 본문 지문 동시 지원) */}
       <OcrModal
         open={isOcrOpen}
         onOpenChange={setIsOcrOpen}
         onSaveWords={handleOcrSaveWords}
+        onSavePassage={handleOcrSavePassage}
       />
     </div>
   );

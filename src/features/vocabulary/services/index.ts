@@ -441,5 +441,6 @@ export async function autoFillMissingVocabulariesAction(): Promise<
 }
 
 export * from './phraseActions';
+export * from './passageActions';
 export * from './dictionarySearch';
 export * from './tursoVocabService';
