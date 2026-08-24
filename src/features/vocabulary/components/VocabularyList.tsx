@@ -577,11 +577,27 @@ export function VocabularyList({
                     {vocab.meaning || '의미 검색 필요'}
                   </p>
 
-                  {/* 하단: 난이도 배지 & 등록일 */}
+                  {/* 하단: 난이도 배지, 신뢰도 & 등록일 */}
                   <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[10px] text-muted-foreground">
-                    <Badge variant="outline" className={`px-1.5 py-0 text-[9px] h-4 font-semibold ${diff.color}`}>
-                      {diff.label}
-                    </Badge>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className={`px-1.5 py-0 text-[9px] h-4 font-semibold ${diff.color}`}>
+                        {diff.label}
+                      </Badge>
+                      {vocab.confidence !== undefined && vocab.confidence !== null && (
+                        <span
+                          className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
+                            vocab.confidence >= 95
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : vocab.confidence >= 80
+                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          }`}
+                          title={`신뢰도 점수: ${vocab.confidence}점`}
+                        >
+                          {vocab.confidence >= 95 ? `🛡️ ${vocab.confidence}%` : `✨ ${vocab.confidence}%`}
+                        </span>
+                      )}
+                    </div>
                     <span>{formatDateKey(vocab.createdAt)}</span>
                   </div>
                 </CardContent>

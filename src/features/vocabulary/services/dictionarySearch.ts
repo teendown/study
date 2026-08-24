@@ -12,6 +12,9 @@ import {
   getGeminiApiKey,
 } from '@/lib/ai/geminiService';
 import { convertToKoreanPronunciation } from './koreanPronunciation';
+import { correctOcrWordOrPhrase } from './ocrCorrectionService';
+import { calculateConfidenceScore, type ConfidenceScoreResult } from './confidenceScorer';
+import { getCachedSearchResult, setCachedSearchResult } from './dictionaryCacheService';
 
 export interface WordSearchResult {
   word: string;
@@ -24,6 +27,10 @@ export interface WordSearchResult {
   antonyms: string;
   source: string;
   naverDictUrl?: string;
+  confidence?: number;
+  verified?: boolean;
+  isOcrCorrected?: boolean;
+  originalQuery?: string;
 }
 
 /**
@@ -601,17 +608,24 @@ export function isValidExampleForWord(example: string, target: string): boolean 
 }
 
 /**
- * 영단어/숙어의 뜻, 품사, 발음, 예문 등을 실시간으로 다단계 자동 검색합니다.
- * (기본 출처: 네이버 영어사전)
- */
-/**
- * 영단어의 뜻, 품사, 발음, 예문 등을 실시간으로 다단계 자동 검색 및 AI 검수합니다.
+ * 🌟 영단어 실시간 다단계 자동 검색, OCR 교정, AI 검수 & 신뢰도 평가 엔진
  */
 export async function searchWordOnline(word: string): Promise<WordSearchResult> {
-  const cleanWord = word.trim().toLowerCase();
-  if (!cleanWord) {
+  const originalInput = word.trim();
+  if (!originalInput) {
     throw new Error('검색할 단어를 입력해주세요.');
   }
+
+  // 0-1. 캐시 계층 확인 (0ms 즉시 반환)
+  const cached = getCachedSearchResult(originalInput);
+  if (cached) {
+    return cached;
+  }
+
+  // 0-2. OCR 오탈자 정규화 및 자동 교정
+  const ocrCorrection = correctOcrWordOrPhrase(originalInput);
+  const cleanWord = ocrCorrection.corrected;
+  const isOcrCorrected = ocrCorrection.isModified;
 
   // 공백이 포함된 경우 숙어 검색 파이프라인으로 위임
   if (cleanWord.includes(' ')) {
@@ -626,7 +640,18 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     const validEx = isValidExampleForWord(builtin.ex || '', cleanWord) ? (builtin.ex || '') : '';
     const validExTrans = validEx ? (builtin.exTrans || '') : '';
 
-    return {
+    const confidenceResult = calculateConfidenceScore({
+      word: cleanWord,
+      meaning: builtin.meaning,
+      partOfSpeech: builtin.pos,
+      pronunciation: builtin.pron,
+      exampleSentence: validEx,
+      exampleTranslation: validExTrans,
+      source: '표준 영한사전',
+      isBuiltin: true,
+    });
+
+    const result: WordSearchResult = {
       word: cleanWord,
       meaning: builtin.meaning,
       partOfSpeech: normalizePartOfSpeech(builtin.pos, cleanWord),
@@ -637,7 +662,15 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
       antonyms: builtin.ant || '',
       source: '표준 영한사전',
       naverDictUrl,
+      confidence: confidenceResult.score,
+      verified: confidenceResult.isAutoApproved,
+      isOcrCorrected,
+      originalQuery: isOcrCorrected ? originalInput : undefined,
     };
+
+    setCachedSearchResult(originalInput, result);
+    if (isOcrCorrected) setCachedSearchResult(cleanWord, result);
+    return result;
   }
 
   // 2. 2순위: Gemini AI 초정밀 어휘 분석 (내장 사전에 없는 신조어, 전문 용어 등)
@@ -651,7 +684,18 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
           : '';
         const validExTrans = validEx ? geminiResult.exampleTranslation || '' : '';
 
-        return {
+        const confidenceResult = calculateConfidenceScore({
+          word: cleanWord,
+          meaning: refinedMeaning,
+          partOfSpeech: geminiResult.partOfSpeech,
+          pronunciation: geminiResult.pronunciation,
+          exampleSentence: validEx,
+          exampleTranslation: validExTrans,
+          source: 'Google Gemini AI 검수',
+          isGeminiVerified: true,
+        });
+
+        const result: WordSearchResult = {
           word: cleanWord,
           meaning: refinedMeaning,
           partOfSpeech: normalizePartOfSpeech(geminiResult.partOfSpeech, cleanWord),
@@ -662,7 +706,14 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
           antonyms: geminiResult.antonyms || '',
           source: 'Google Gemini AI 검수',
           naverDictUrl,
+          confidence: confidenceResult.score,
+          verified: confidenceResult.isAutoApproved,
+          isOcrCorrected,
+          originalQuery: isOcrCorrected ? originalInput : undefined,
         };
+
+        setCachedSearchResult(originalInput, result);
+        return result;
       }
     } catch {}
   }
@@ -751,7 +802,18 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
           : '';
         const validExTrans = validEx ? aiValidated.exampleTranslation || '' : '';
 
-        return {
+        const confidenceResult = calculateConfidenceScore({
+          word: cleanWord,
+          meaning: aiValidated.meaning,
+          partOfSpeech: aiValidated.partOfSpeech,
+          pronunciation: aiValidated.pronunciation,
+          exampleSentence: validEx,
+          exampleTranslation: validExTrans,
+          source: 'Google Gemini AI 검수',
+          isGeminiVerified: true,
+        });
+
+        const result: WordSearchResult = {
           word: cleanWord,
           meaning: sanitizeMeaningText(aiValidated.meaning, cleanWord) || aiValidated.meaning,
           partOfSpeech: normalizePartOfSpeech(aiValidated.partOfSpeech, cleanWord),
@@ -762,7 +824,14 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
           antonyms: aiValidated.antonyms || '',
           source: 'Google Gemini AI 검수',
           naverDictUrl,
+          confidence: confidenceResult.score,
+          verified: confidenceResult.isAutoApproved,
+          isOcrCorrected,
+          originalQuery: isOcrCorrected ? originalInput : undefined,
         };
+
+        setCachedSearchResult(originalInput, result);
+        return result;
       }
     } catch {}
   }
@@ -822,7 +891,17 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     }
   }
 
-  return {
+  const confidenceResult = calculateConfidenceScore({
+    word: cleanWord,
+    meaning: sanitizedMeaning,
+    partOfSpeech,
+    pronunciation: finalKoreanPron,
+    exampleSentence,
+    exampleTranslation,
+    source,
+  });
+
+  const finalResult: WordSearchResult = {
     word: cleanWord,
     meaning: sanitizedMeaning,
     partOfSpeech: normalizePartOfSpeech(partOfSpeech, cleanWord),
@@ -833,25 +912,50 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     antonyms: antonyms || '',
     source: source || '사전 및 AI 통합 분석',
     naverDictUrl,
+    confidence: confidenceResult.score,
+    verified: confidenceResult.isAutoApproved,
+    isOcrCorrected,
+    originalQuery: isOcrCorrected ? originalInput : undefined,
   };
+
+  setCachedSearchResult(originalInput, finalResult);
+  return finalResult;
 }
 
 /**
- * 🌟 숙어(Phrase) 전용 고정밀 실시간 자동 검색 및 사전/AI 검수
- * (숙어는 발음 생성을 하지 않으며, 내장 숙어 사전을 1순위로 즉시 조회합니다.)
+ * 🌟 숙어(Phrase) 전용 고정밀 실시간 자동 검색, 사전/AI 검수 & 신뢰도 평가
  */
 export async function searchPhraseOnline(phraseText: string): Promise<WordSearchResult> {
-  const cleanPhrase = phraseText.trim().toLowerCase();
-  if (!cleanPhrase) {
+  const originalInput = phraseText.trim();
+  if (!originalInput) {
     throw new Error('검색할 숙어를 입력해주세요.');
   }
+
+  // 0-1. 캐시 확인
+  const cached = getCachedSearchResult(originalInput);
+  if (cached) {
+    return cached;
+  }
+
+  // 0-2. OCR 정규화 및 교정
+  const ocrCorrection = correctOcrWordOrPhrase(originalInput);
+  const cleanPhrase = ocrCorrection.corrected;
+  const isOcrCorrected = ocrCorrection.isModified;
 
   const naverDictUrl = getNaverDictUrl(cleanPhrase);
 
   // 1. 1순위: 내장 표준 숙어사전(400+개 필수 숙어/구동사) 0ms 즉시 조회
   const builtinPhrase = lookupPhraseMeaning(cleanPhrase);
   if (builtinPhrase && builtinPhrase.meaning) {
-    return {
+    const confidenceResult = calculateConfidenceScore({
+      word: cleanPhrase,
+      meaning: builtinPhrase.meaning,
+      partOfSpeech: 'phr.',
+      source: '표준 숙어 사전',
+      isBuiltin: true,
+    });
+
+    const result: WordSearchResult = {
       word: cleanPhrase,
       meaning: builtinPhrase.meaning,
       partOfSpeech: 'phr.',
@@ -862,7 +966,14 @@ export async function searchPhraseOnline(phraseText: string): Promise<WordSearch
       antonyms: '',
       source: '표준 숙어 사전',
       naverDictUrl,
+      confidence: confidenceResult.score,
+      verified: confidenceResult.isAutoApproved,
+      isOcrCorrected,
+      originalQuery: isOcrCorrected ? originalInput : undefined,
     };
+
+    setCachedSearchResult(originalInput, result);
+    return result;
   }
 
   // 2. 2순위: Gemini AI 정밀 숙어 분석 (고난도/복합 구동사)
@@ -871,7 +982,18 @@ export async function searchPhraseOnline(phraseText: string): Promise<WordSearch
       const geminiResult = await analyzeWordWithGemini(cleanPhrase);
       if (geminiResult && geminiResult.meaning && !geminiResult.meaning.includes('사전 등록 필요')) {
         const refinedMeaning = sanitizeMeaningText(geminiResult.meaning, cleanPhrase) || geminiResult.meaning;
-        return {
+
+        const confidenceResult = calculateConfidenceScore({
+          word: cleanPhrase,
+          meaning: refinedMeaning,
+          partOfSpeech: 'phr.',
+          exampleSentence: geminiResult.exampleSentence,
+          exampleTranslation: geminiResult.exampleTranslation,
+          source: 'Google Gemini AI 숙어 검수',
+          isGeminiVerified: true,
+        });
+
+        const result: WordSearchResult = {
           word: cleanPhrase,
           meaning: refinedMeaning,
           partOfSpeech: 'phr.',
@@ -882,7 +1004,14 @@ export async function searchPhraseOnline(phraseText: string): Promise<WordSearch
           antonyms: geminiResult.antonyms || '',
           source: 'Google Gemini AI 숙어 검수',
           naverDictUrl,
+          confidence: confidenceResult.score,
+          verified: confidenceResult.isAutoApproved,
+          isOcrCorrected,
+          originalQuery: isOcrCorrected ? originalInput : undefined,
         };
+
+        setCachedSearchResult(originalInput, result);
+        return result;
       }
     } catch {}
   }
@@ -922,7 +1051,16 @@ export async function searchPhraseOnline(phraseText: string): Promise<WordSearch
     } catch {}
   }
 
-  return {
+  const confidenceResult = calculateConfidenceScore({
+    word: cleanPhrase,
+    meaning: meaning || '뜻 직접 입력 필요',
+    partOfSpeech: 'phr.',
+    exampleSentence,
+    exampleTranslation,
+    source,
+  });
+
+  const finalResult: WordSearchResult = {
     word: cleanPhrase,
     meaning: meaning || '뜻 직접 입력 필요',
     partOfSpeech: 'phr.',
@@ -933,7 +1071,15 @@ export async function searchPhraseOnline(phraseText: string): Promise<WordSearch
     antonyms: '',
     source: source || '숙어 분석 엔진',
     naverDictUrl,
+    confidence: confidenceResult.score,
+    verified: confidenceResult.isAutoApproved,
+    isOcrCorrected,
+    originalQuery: isOcrCorrected ? originalInput : undefined,
   };
+
+  setCachedSearchResult(originalInput, finalResult);
+  return finalResult;
 }
+
 
 

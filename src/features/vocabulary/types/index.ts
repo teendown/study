@@ -17,6 +17,8 @@ export interface VocabularyWithItem {
   difficulty: number;
   grade: number | null;
   source: string | null;
+  confidence?: number | null;
+  verified?: boolean | null;
   learningItemId: string;
   createdAt: string;
   updatedAt: string;
