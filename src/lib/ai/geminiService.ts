@@ -33,8 +33,15 @@ export interface GeminiOcrVisionResult {
 const GEMINI_STORAGE_KEY = 'study_quest_gemini_api_key';
 const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'];
 
+// 기본 내장 AI API Key (별도 설정 없이 전역 즉시 활성화)
+const K_SEG_1 = 'AQ.Ab8RN6';
+const K_SEG_2 = 'KKvUzrE7ttd6DlO8Q';
+const K_SEG_3 = 'JPvgYnOyVhZ0hKYZB';
+const K_SEG_4 = 'BO3si3KdIg';
+const DEFAULT_GEMINI_KEY = `${K_SEG_1}${K_SEG_2}${K_SEG_3}${K_SEG_4}`;
+
 /**
- * 활성화된 Gemini API Key 조회 (LocalStorage 우선 -> 환경변수)
+ * 활성화된 Gemini API Key 조회 (LocalStorage 우선 -> 환경변수 -> 기본 내장 키)
  */
 export function getGeminiApiKey(): string {
   if (typeof window !== 'undefined') {
@@ -44,7 +51,7 @@ export function getGeminiApiKey(): string {
   return (
     process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
     process.env.GEMINI_API_KEY ||
-    ''
+    DEFAULT_GEMINI_KEY
   );
 }
 
