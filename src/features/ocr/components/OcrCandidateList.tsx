@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, CheckSquare, Square, Volume2, Plus, Sparkles } from 'lucide-react';
+import { CheckSquare, Square, Volume2, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
+import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
 
 interface OcrCandidateListProps {
   initialCandidates: ExtractedWordCandidate[];
@@ -21,10 +21,14 @@ export function OcrCandidateList({
 }: OcrCandidateListProps) {
   const [candidates, setCandidates] = useState<ExtractedWordCandidate[]>(initialCandidates);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
 
   // 전체 선택/해제
   const isAllSelected = candidates.length > 0 && candidates.every((c) => c.selected);
   const selectedCount = candidates.filter((c) => c.selected).length;
+  const missingMeaningCount = candidates.filter(
+    (c) => !c.meaning || c.meaning.trim() === '' || c.meaning === '의미 검색 필요' || c.meaning === '의미 미입력'
+  ).length;
 
   const toggleSelectAll = () => {
     setCandidates((prev) =>
@@ -53,12 +57,59 @@ export function OcrCandidateList({
     }
   };
 
+  // 모든 빈 뜻 자동 검색 및 채우기
+  const handleAutoFillAll = async () => {
+    setIsAutoFilling(true);
+    try {
+      const updated = [...candidates];
+      const targets = updated.filter(
+        (c) => !c.meaning || c.meaning.trim() === '' || c.meaning === '의미 검색 필요' || c.meaning === '의미 미입력'
+      );
+
+      const BATCH_SIZE = 8;
+      for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+        const batch = targets.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (item) => {
+            try {
+              const res = await searchWordOnline(item.word);
+              if (res && res.meaning && res.meaning !== '의미 검색 필요') {
+                item.meaning = res.meaning;
+                if (res.partOfSpeech) item.partOfSpeech = res.partOfSpeech;
+                if (res.pronunciation) item.pronunciation = res.pronunciation;
+              }
+            } catch {}
+          })
+        );
+        setCandidates([...updated]);
+      }
+    } finally {
+      setIsAutoFilling(false);
+    }
+  };
+
   const handleSave = async () => {
     const selected = candidates.filter((c) => c.selected);
     if (selected.length === 0) return;
 
     setIsSaving(true);
     try {
+      // 저장 전 뜻이 비어있는 선택 단어 자동 보충
+      await Promise.all(
+        selected.map(async (item) => {
+          if (!item.meaning || item.meaning.trim() === '' || item.meaning === '의미 검색 필요') {
+            try {
+              const res = await searchWordOnline(item.word);
+              if (res && res.meaning && res.meaning !== '의미 검색 필요') {
+                item.meaning = res.meaning;
+                if (res.partOfSpeech) item.partOfSpeech = res.partOfSpeech;
+                if (res.pronunciation) item.pronunciation = res.pronunciation;
+              }
+            } catch {}
+          }
+        })
+      );
+
       await onSaveSelected(selected);
     } finally {
       setIsSaving(false);
@@ -67,8 +118,8 @@ export function OcrCandidateList({
 
   return (
     <div className="space-y-4 max-h-[75vh] flex flex-col">
-      {/* 상단 액션 바: 전체 선택 & 카운트 */}
-      <div className="flex items-center justify-between border-b border-border pb-2 shrink-0">
+      {/* 상단 액션 바: 전체 선택 & 카운트 & 자동 채우기 */}
+      <div className="flex items-center justify-between border-b border-border pb-2 shrink-0 gap-2 flex-wrap">
         <Button
           variant="ghost"
           size="sm"
@@ -88,10 +139,29 @@ export function OcrCandidateList({
           )}
         </Button>
 
-        <span className="text-xs text-muted-foreground">
-          총 <span className="font-bold text-foreground">{candidates.length}</span>개 중{' '}
-          <span className="font-bold text-primary">{selectedCount}</span>개 선택됨
-        </span>
+        <div className="flex items-center gap-2">
+          {missingMeaningCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAutoFillAll}
+              disabled={isAutoFilling}
+              className="text-xs font-semibold gap-1 h-7 border-primary/40 text-primary hover:bg-primary/10"
+            >
+              {isAutoFilling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              )}
+              {isAutoFilling ? '사전 검색 중...' : '뜻 자동 완성'}
+            </Button>
+          )}
+
+          <span className="text-xs text-muted-foreground">
+            총 <span className="font-bold text-foreground">{candidates.length}</span>개 중{' '}
+            <span className="font-bold text-primary">{selectedCount}</span>개 선택됨
+          </span>
+        </div>
       </div>
 
       {/* 후보 단어 리스트 (스크롤) */}
@@ -130,9 +200,16 @@ export function OcrCandidateList({
                     <Volume2 className="h-3 w-3" />
                   </Button>
                 </div>
-                {item.partOfSpeech && (
-                  <span className="text-[10px] text-muted-foreground">{item.partOfSpeech}</span>
-                )}
+                <div className="flex items-center gap-1">
+                  {item.partOfSpeech && (
+                    <span className="text-[10px] text-muted-foreground">{item.partOfSpeech}</span>
+                  )}
+                  {item.pronunciation && (
+                    <span className="text-[10px] text-primary/80 font-medium">
+                      {item.pronunciation}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* 뜻 입력/수정 창 */}
@@ -160,7 +237,7 @@ export function OcrCandidateList({
           disabled={selectedCount === 0 || isSaving}
         >
           <Plus className="h-4 w-4" />
-          {isSaving ? '저장 중...' : `선택한 ${selectedCount}개 단어 등록`}
+          {isSaving ? '단어 및 뜻 저장 중...' : `선택한 ${selectedCount}개 단어 등록`}
         </Button>
       </div>
     </div>

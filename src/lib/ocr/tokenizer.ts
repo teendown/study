@@ -1,9 +1,10 @@
 // ===========================
-// English OCR Tokenizer & Cleaner
+// English OCR Tokenizer & Cleaner (Enhanced with Base Form Resolution)
 // ===========================
 // 설계서 섹션 28 기반 (OCR Pipeline)
 
 import { BUILTIN_DICTIONARY } from './dictionary';
+import { convertToKoreanPronunciation } from '@/features/vocabulary/services/koreanPronunciation';
 
 /** 너무 기초적인 불용어(Stopwords) */
 const STOPWORDS = new Set([
@@ -16,7 +17,7 @@ const STOPWORDS = new Set([
   'just', 'him', 'know', 'take', 'people', 'into', 'year', 'your',
   'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then',
   'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also',
-  'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first',
+  'back', 'after', 'use', 'two', 'how', 'our', 'first',
   'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these',
   'give', 'day', 'most', 'us', 'is', 'are', 'was', 'were', 'been',
   'has', 'had', 'did', 'does',
@@ -27,9 +28,35 @@ export interface ExtractedWordCandidate {
   word: string;
   meaning: string;
   partOfSpeech: string;
+  pronunciation?: string;
   difficulty: number;
-  selected: boolean; // 사용자가 체크박스로 선택했는지 여부
+  selected: boolean;
   sourceText?: string;
+}
+
+/**
+ * 단어의 원형(동사원형, 단수형, 형용사 원형) 후보군 생성
+ */
+export function getBaseFormCandidates(word: string): string[] {
+  const forms = [word];
+  if (word.endsWith('ing')) {
+    forms.push(word.slice(0, -3));
+    if (word.endsWith('ting') || word.endsWith('ning') || word.endsWith('ping') || word.endsWith('ding')) {
+      forms.push(word.slice(0, -4));
+    }
+    forms.push(word.slice(0, -3) + 'e');
+  }
+  if (word.endsWith('ly')) forms.push(word.slice(0, -2));
+  if (word.endsWith('ed')) {
+    forms.push(word.slice(0, -2));
+    forms.push(word.slice(0, -1));
+    if (word.endsWith('ted') || word.endsWith('ned') || word.endsWith('ped') || word.endsWith('ded')) {
+      forms.push(word.slice(0, -3));
+    }
+  }
+  if (word.endsWith('es')) forms.push(word.slice(0, -2));
+  if (word.endsWith('s') && !word.endsWith('ss')) forms.push(word.slice(0, -1));
+  return Array.from(new Set(forms));
 }
 
 /**
@@ -38,7 +65,7 @@ export interface ExtractedWordCandidate {
 export function extractEnglishWords(rawText: string): ExtractedWordCandidate[] {
   if (!rawText || typeof rawText !== 'string') return [];
 
-  // 1. 알파벳이 아닌 문자 공백 치환 (하이픈과 어포스트로피 일부 보존)
+  // 1. 알파벳이 아닌 문자 공백 치환
   const cleaned = rawText
     .replace(/[^a-zA-Z\s-]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -51,25 +78,38 @@ export function extractEnglishWords(rawText: string): ExtractedWordCandidate[] {
   rawTokens.forEach((token) => {
     const word = token.toLowerCase().replace(/^[-']+|[-']+$/g, '');
 
-    // 단어 유효성 검사: 길이 3글자 이상, 불용어 제외, 순수 알파벳
+    // 단어 유효성 검사
     if (word.length < 3) return;
     if (STOPWORDS.has(word)) return;
     if (!/^[a-z]+$/.test(word)) return;
     if (wordMap.has(word)) return; // 중복 방지
 
-    // 3. 내장 사전 매핑
-    const dictInfo = BUILTIN_DICTIONARY[word];
-    const meaning = dictInfo ? dictInfo.meaning : '';
-    const partOfSpeech = dictInfo?.pos || '';
-    const difficulty = dictInfo?.diff || 2;
+    // 3. 내장 사전 매핑 (원형 후보군 탐색)
+    const baseCandidates = getBaseFormCandidates(word);
+    let meaning = '';
+    let partOfSpeech = 'n.';
+    let pronunciation = convertToKoreanPronunciation('', word);
+    let difficulty = 2;
+
+    for (const cand of baseCandidates) {
+      const dictInfo = BUILTIN_DICTIONARY[cand];
+      if (dictInfo) {
+        meaning = dictInfo.meaning;
+        partOfSpeech = dictInfo.pos || (word.includes(' ') ? 'phr.' : 'n.');
+        pronunciation = dictInfo.pron || convertToKoreanPronunciation('', word);
+        difficulty = dictInfo.diff || 2;
+        break;
+      }
+    }
 
     wordMap.set(word, {
-      id: `ocr-${word}-${Date.now()}`,
+      id: `ocr-${word}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       word,
       meaning,
       partOfSpeech,
+      pronunciation,
       difficulty,
-      selected: true, // 기본적으로 선택됨
+      selected: true,
     });
   });
 
