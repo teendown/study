@@ -62,16 +62,35 @@ export function PassageDetail({
   // 사전에 없는 단어 실시간 인터넷 검색 캐시
   const [onlineMeaningMap, setOnlineMeaningMap] = useState<Record<string, { meaning: string; pron?: string }>>({});
 
-  // 1. 처음에 지문 들어갈 때 자동 분석 실행
+  // 1. 처음에 지문 들어갈 때 자동 분석 실행 (3개 등 한정 없이 본문에서 검색되는 모든 숙어/단어 전수 추출)
   useEffect(() => {
-    const pList = extractEnglishPhrases(passage.content);
-    setExtractedPhrases(pList);
+    const freshPhrases = extractEnglishPhrases(passage.content);
+    const existing = passage.phraseList || [];
+    const map = new Map<string, ExtractedPhraseResult>();
 
-    const wList = passage.vocabularyList && passage.vocabularyList.length > 0
-      ? passage.vocabularyList
-      : extractEnglishWords(passage.content).map((w) => w.word);
+    // 기존에 저장되어 있던 숙어 추가
+    existing.forEach((p) => {
+      map.set(p.phrase.toLowerCase(), {
+        id: `phrase-${p.phrase}`,
+        phrase: p.phrase,
+        matchedText: p.matchedText || p.phrase,
+        meaning: p.meaning,
+        difficulty: p.difficulty || 2,
+        selected: true,
+      });
+    });
+
+    // 400+개 정밀 사전에서 검출된 모든 숙어 전수 추가 (제한 없이 모두 추가)
+    freshPhrases.forEach((p) => {
+      map.set(p.phrase.toLowerCase(), p);
+    });
+
+    setExtractedPhrases(Array.from(map.values()));
+
+    // 단어도 개수 제한 없이 본문 내 모든 어휘 추출
+    const wList = extractEnglishWords(passage.content).map((w) => w.word);
     setExtractedWords(wList);
-  }, [passage.id, passage.content, passage.vocabularyList]);
+  }, [passage.id, passage.content, passage.vocabularyList, passage.phraseList]);
 
   // 2. 사전에 없는 단어 백그라운드 인터넷 자동 검색
   useEffect(() => {
@@ -105,7 +124,7 @@ export function PassageDetail({
     fetchMissingOnline();
   }, [extractedWords, onlineMeaningMap]);
 
-  // 3. 수동 재분석 버튼 클릭 핸들러
+  // 3. 수동 재분석 버튼 클릭 핸들러 (모든 숙어 전수 재검출)
   const handleManualReanalyze = () => {
     setIsReanalyzing(true);
     setReanalyzeMessage(null);
@@ -117,7 +136,7 @@ export function PassageDetail({
       setExtractedPhrases(pList);
       setExtractedWords(wList);
       setIsReanalyzing(false);
-      setReanalyzeMessage(`정밀 재분석 완료! (숙어 ${pList.length}개, 단어 ${wList.length}개 검출)`);
+      setReanalyzeMessage(`전수 재분석 완료! (검색된 모든 숙어 ${pList.length}개, 단어 ${wList.length}개 검출)`);
       setTimeout(() => setReanalyzeMessage(null), 3000);
     }, 400);
   };
