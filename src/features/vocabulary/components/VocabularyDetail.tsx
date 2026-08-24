@@ -1,25 +1,28 @@
 'use client';
 
-import { ArrowLeft, Pencil, Trash2, Volume2 } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Pencil, Trash2, Volume2, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import type { VocabularyWithItem } from '@/features/vocabulary/types';
+import { searchWordOnlineAction, updateVocabularyAction } from '@/features/vocabulary/services';
 
 interface VocabularyDetailProps {
   vocab: VocabularyWithItem;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onVocabUpdated?: (updated: VocabularyWithItem) => void;
 }
 
 const difficultyStars: Record<number, string> = {
-  1: '⭐',
-  2: '⭐⭐',
-  3: '⭐⭐⭐',
-  4: '⭐⭐⭐⭐',
-  5: '⭐⭐⭐⭐⭐',
+  1: '⭐ 매우 쉬움',
+  2: '⭐⭐ 쉬움',
+  3: '⭐⭐⭐ 보통',
+  4: '⭐⭐⭐⭐ 어려움',
+  5: '⭐⭐⭐⭐⭐ 매우 어려움',
 };
 
 /**
@@ -30,13 +33,62 @@ export function VocabularyDetail({
   onBack,
   onEdit,
   onDelete,
+  onVocabUpdated,
 }: VocabularyDetailProps) {
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+
   const handleSpeak = () => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(vocab.word);
       utterance.lang = 'en-US';
       utterance.rate = 0.8;
       window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const isMissing =
+    !vocab.meaning ||
+    vocab.meaning === '의미 미입력' ||
+    vocab.meaning === '의미 검색 필요' ||
+    vocab.meaning === '뜻 미입력' ||
+    !vocab.pronunciation ||
+    !vocab.exampleSentence;
+
+  const handleAutoFill = async () => {
+    setIsAutoFilling(true);
+    try {
+      const res = await searchWordOnlineAction(vocab.word);
+      if (res.success && res.data) {
+        const d = res.data;
+        const updatedFields = {
+          meaning: d.meaning && d.meaning !== '의미 검색 필요' ? d.meaning : vocab.meaning,
+          partOfSpeech: (d.partOfSpeech || vocab.partOfSpeech) ?? undefined,
+          pronunciation: (d.pronunciation || vocab.pronunciation) ?? undefined,
+          exampleSentence: (d.exampleSentence || vocab.exampleSentence) ?? undefined,
+          exampleTranslation: (d.exampleTranslation || vocab.exampleTranslation) ?? undefined,
+          synonyms: (d.synonyms || vocab.synonyms) ?? undefined,
+          antonyms: (d.antonyms || vocab.antonyms) ?? undefined,
+          source: (d.source || vocab.source) ?? undefined,
+        };
+        await updateVocabularyAction(vocab.id, updatedFields);
+        const updatedVocab: VocabularyWithItem = {
+          ...vocab,
+          meaning: updatedFields.meaning,
+          partOfSpeech: updatedFields.partOfSpeech ?? null,
+          pronunciation: updatedFields.pronunciation ?? null,
+          exampleSentence: updatedFields.exampleSentence ?? null,
+          exampleTranslation: updatedFields.exampleTranslation ?? null,
+          synonyms: updatedFields.synonyms ?? null,
+          antonyms: updatedFields.antonyms ?? null,
+          source: updatedFields.source ?? null,
+          updatedAt: new Date().toISOString(),
+        };
+        onVocabUpdated?.(updatedVocab);
+      }
+    } catch {
+      alert('단어 정보 자동 검색에 실패했습니다.');
+    } finally {
+      setIsAutoFilling(false);
     }
   };
 
@@ -49,7 +101,23 @@ export function VocabularyDetail({
           돌아가기
         </Button>
         <div className="flex gap-1.5">
-          <Button variant="outline" size="sm" onClick={onEdit} className="gap-1">
+          {isMissing && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleAutoFill}
+              disabled={isAutoFilling}
+              className="gap-1 text-primary border border-primary/20 font-bold"
+            >
+              {isAutoFilling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              뜻 자동 완성
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onEdit} className="gap-1 font-semibold">
             <Pencil className="h-3.5 w-3.5" />
             수정
           </Button>
@@ -57,7 +125,7 @@ export function VocabularyDetail({
             variant="outline"
             size="sm"
             onClick={onDelete}
-            className="gap-1 text-destructive hover:text-destructive"
+            className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 font-semibold"
           >
             <Trash2 className="h-3.5 w-3.5" />
             삭제
@@ -71,24 +139,25 @@ export function VocabularyDetail({
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <CardTitle className="text-2xl">{vocab.word}</CardTitle>
+                <CardTitle className="text-2xl font-bold">{vocab.word}</CardTitle>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0"
+                  className="h-8 w-8 shrink-0 text-primary hover:bg-primary/10"
                   onClick={handleSpeak}
+                  title="발음 듣기"
                 >
-                  <Volume2 className="h-4 w-4 text-primary" />
+                  <Volume2 className="h-5 w-5" />
                 </Button>
               </div>
               {vocab.pronunciation && (
-                <p className="text-sm text-muted-foreground mt-0.5">
+                <p className="text-sm text-muted-foreground mt-0.5 font-mono">
                   {vocab.pronunciation}
                 </p>
               )}
             </div>
             {vocab.partOfSpeech && (
-              <Badge variant="secondary">{vocab.partOfSpeech}</Badge>
+              <Badge variant="secondary" className="font-semibold">{vocab.partOfSpeech}</Badge>
             )}
           </div>
         </CardHeader>
@@ -96,7 +165,9 @@ export function VocabularyDetail({
           {/* 뜻 */}
           <div>
             <p className="text-xs font-semibold text-muted-foreground mb-1">뜻</p>
-            <p className="text-base font-medium">{vocab.meaning}</p>
+            <p className={`text-base font-medium ${isMissing && !vocab.meaning ? 'text-amber-500 italic' : ''}`}>
+              {vocab.meaning || '뜻이 등록되지 않았습니다.'}
+            </p>
           </div>
 
           <Separator />
@@ -107,7 +178,7 @@ export function VocabularyDetail({
               <p className="text-xs font-semibold text-muted-foreground mb-1">예문</p>
               <p className="text-sm italic">{vocab.exampleSentence}</p>
               {vocab.exampleTranslation && (
-                <p className="text-sm text-muted-foreground mt-0.5">
+                <p className="text-sm text-muted-foreground mt-1">
                   {vocab.exampleTranslation}
                 </p>
               )}

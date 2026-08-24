@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, Sparkles, Search } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,6 +39,7 @@ export function VocabularyFormDialog({
 }: VocabularyFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [searchSuccessMessage, setSearchSuccessMessage] = useState('');
   const [error, setError] = useState('');
 
   const [word, setWord] = useState(initialData?.word ?? '');
@@ -52,20 +53,64 @@ export function VocabularyFormDialog({
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 1);
   const [source, setSource] = useState(initialData?.source ?? '');
 
-  // 인터넷 실시간 자동 검색
-  const handleAutoSearch = async () => {
-    if (!word.trim()) {
-      setError('검색할 영어 단어를 먼저 입력해주세요.');
+  const lastSearchedWord = useRef<string>('');
+
+  // Dialog가 열릴 때 상태 초기화
+  useEffect(() => {
+    if (open) {
+      setError('');
+      setSearchSuccessMessage('');
+      if (initialData) {
+        setWord(initialData.word ?? '');
+        setMeaning(initialData.meaning ?? '');
+        setPartOfSpeech(initialData.partOfSpeech ?? '');
+        setPronunciation(initialData.pronunciation ?? '');
+        setExampleSentence(initialData.exampleSentence ?? '');
+        setExampleTranslation(initialData.exampleTranslation ?? '');
+        setSynonyms(initialData.synonyms ?? '');
+        setAntonyms(initialData.antonyms ?? '');
+        setDifficulty(initialData.difficulty ?? 1);
+        setSource(initialData.source ?? '');
+        lastSearchedWord.current = initialData.word ?? '';
+      } else {
+        setWord('');
+        setMeaning('');
+        setPartOfSpeech('');
+        setPronunciation('');
+        setExampleSentence('');
+        setExampleTranslation('');
+        setSynonyms('');
+        setAntonyms('');
+        setDifficulty(1);
+        setSource('');
+        lastSearchedWord.current = '';
+      }
+    }
+  }, [open, initialData]);
+
+  // 실시간 온라인 사전 자동 검색
+  const executeSearch = async (targetWord: string, isManual = false) => {
+    const clean = targetWord.trim();
+    if (!clean) {
+      if (isManual) setError('검색할 영어 단어를 먼저 입력해주세요.');
+      return;
+    }
+    if (!isManual && clean === lastSearchedWord.current) {
       return;
     }
 
     setError('');
+    setSearchSuccessMessage('');
     setIsSearchingOnline(true);
+    lastSearchedWord.current = clean;
+
     try {
-      const res = await searchWordOnlineAction(word.trim());
+      const res = await searchWordOnlineAction(clean);
       if (res.success && res.data) {
         const d = res.data;
-        if (d.meaning && d.meaning !== '의미 검색 필요') setMeaning(d.meaning);
+        if (d.meaning && d.meaning !== '의미 검색 필요') {
+          setMeaning(d.meaning);
+        }
         if (d.partOfSpeech) setPartOfSpeech(d.partOfSpeech);
         if (d.pronunciation) setPronunciation(d.pronunciation);
         if (d.exampleSentence) setExampleSentence(d.exampleSentence);
@@ -73,13 +118,28 @@ export function VocabularyFormDialog({
         if (d.synonyms) setSynonyms(d.synonyms);
         if (d.antonyms) setAntonyms(d.antonyms);
         if (d.source) setSource(d.source);
+
+        setSearchSuccessMessage(
+          d.source ? `✨ [${d.source}] 정보가 자동 입력되었습니다.` : '✨ 단어 정보가 자동 입력되었습니다.'
+        );
       } else if (!res.success) {
-        setError(res.error || '단어 정보를 찾지 못했습니다.');
+        if (isManual) setError(res.error || '단어 정보를 찾지 못했습니다.');
       }
     } catch {
-      setError('인터넷 사전 검색 중 오류가 발생했습니다.');
+      if (isManual) setError('사전 검색 중 오류가 발생했습니다.');
     } finally {
       setIsSearchingOnline(false);
+    }
+  };
+
+  const handleManualSearch = () => {
+    executeSearch(word, true);
+  };
+
+  // 단어 입력 후 포커스 아웃 시 뜻이 비어있으면 자동 검색
+  const handleWordBlur = () => {
+    if (word.trim().length >= 2 && !meaning.trim()) {
+      executeSearch(word, false);
     }
   };
 
@@ -122,6 +182,7 @@ export function VocabularyFormDialog({
         setAntonyms('');
         setDifficulty(1);
         setSource('');
+        lastSearchedWord.current = '';
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류가 발생했습니다.');
@@ -146,7 +207,14 @@ export function VocabularyFormDialog({
             </div>
           )}
 
-          {/* 단어 입력 & 인터넷 자동 검색 버튼 */}
+          {searchSuccessMessage && (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>{searchSuccessMessage}</span>
+            </div>
+          )}
+
+          {/* 단어 입력 & 사전 자동 검색 버튼 */}
           <div className="space-y-1.5">
             <Label htmlFor="form-word">
               단어 <span className="text-destructive">*</span>
@@ -154,13 +222,17 @@ export function VocabularyFormDialog({
             <div className="flex gap-2">
               <Input
                 id="form-word"
-                placeholder="significant"
+                placeholder="예: significant, abandon"
                 value={word}
-                onChange={(e) => setWord(e.target.value)}
+                onChange={(e) => {
+                  setWord(e.target.value);
+                  setSearchSuccessMessage('');
+                }}
+                onBlur={handleWordBlur}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    handleAutoSearch();
+                    handleManualSearch();
                   }
                 }}
                 autoFocus
@@ -169,8 +241,8 @@ export function VocabularyFormDialog({
               <Button
                 type="button"
                 variant="secondary"
-                className="font-bold gap-1.5 shrink-0 border border-primary/20 hover:bg-primary/10 text-primary"
-                onClick={handleAutoSearch}
+                className="font-bold gap-1.5 shrink-0 border border-primary/30 hover:bg-primary/10 text-primary"
+                onClick={handleManualSearch}
                 disabled={isSearchingOnline || !word.trim()}
               >
                 {isSearchingOnline ? (
@@ -181,6 +253,9 @@ export function VocabularyFormDialog({
                 자동 검색
               </Button>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              단어 입력 후 <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">Enter</kbd> 또는 [자동 검색]을 누르면 뜻, 발음, 예문이 자동 완성됩니다.
+            </p>
           </div>
 
           {/* 필수: 뜻 */}
@@ -190,7 +265,7 @@ export function VocabularyFormDialog({
             </Label>
             <Input
               id="form-meaning"
-              placeholder="중요한, 상당한"
+              placeholder="예: 중요한, 상당한"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
             />
@@ -264,7 +339,7 @@ export function VocabularyFormDialog({
               <Label htmlFor="form-antonyms">반의어</Label>
               <Input
                 id="form-antonyms"
-                placeholder="trivial, minor"
+                placeholder="insignificant, trivial"
                 value={antonyms}
                 onChange={(e) => setAntonyms(e.target.value)}
               />

@@ -11,6 +11,8 @@ import {
   Sparkles,
   Zap,
   Calendar,
+  Trash2,
+  Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +26,10 @@ interface VocabularyListProps {
   onAddClick: () => void;
   onItemClick: (vocab: VocabularyWithItem) => void;
   onSearch: (query: string) => void;
+  onDeleteClick?: (id: string) => void;
+  onBatchDelete?: (ids: string[]) => void;
+  onAutoFillMissing?: () => Promise<void>;
+  isAutoFilling?: boolean;
   isLoading?: boolean;
 }
 
@@ -62,6 +68,10 @@ export function VocabularyList({
   onAddClick,
   onItemClick,
   onSearch,
+  onDeleteClick,
+  onBatchDelete,
+  onAutoFillMissing,
+  isAutoFilling = false,
   isLoading = false,
 }: VocabularyListProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,6 +85,20 @@ export function VocabularyList({
 
   const rawItems = initialData?.items ?? [];
   const total = initialData?.total ?? 0;
+
+  // 뜻이나 정보가 누락된 단어 수 계산
+  const missingCount = useMemo(() => {
+    return rawItems.filter(
+      (v) =>
+        !v.meaning ||
+        v.meaning.trim() === '' ||
+        v.meaning === '의미 미입력' ||
+        v.meaning === '의미 검색 필요' ||
+        v.meaning === '뜻 미입력' ||
+        !v.partOfSpeech ||
+        !v.pronunciation
+    ).length;
+  }, [rawItems]);
 
   // 등록 날짜 목록 추출
   const availableDates = useMemo(() => {
@@ -107,6 +131,17 @@ export function VocabularyList({
     }
   };
 
+  const handleDeleteItem = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    onDeleteClick?.(id);
+  };
+
+  const handleBatchDeleteClick = () => {
+    if (selectedIds.size === 0) return;
+    onBatchDelete?.(Array.from(selectedIds));
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="space-y-4 pb-16 relative">
       {/* 검색 & 추가 버튼 */}
@@ -131,6 +166,37 @@ export function VocabularyList({
           <span className="hidden sm:inline">단어 추가</span>
         </Button>
       </div>
+
+      {/* 💡 뜻/정보 누락 단어 자동 완성 배너 */}
+      {missingCount > 0 && onAutoFillMissing && (
+        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
+          <div className="flex items-center gap-2">
+            <Wand2 className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              뜻이나 발음이 누락된 단어가 <strong className="font-bold text-amber-600 dark:text-amber-400">{missingCount}개</strong> 있습니다.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 shrink-0 font-bold gap-1.5 bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500 shadow-xs"
+            onClick={onAutoFillMissing}
+            disabled={isAutoFilling}
+          >
+            {isAutoFilling ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                자동 채우는 중...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" />
+                뜻 자동 채우기
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* 📅 등록 날짜별 필터 칩 */}
       {availableDates.length > 0 && (
@@ -161,20 +227,31 @@ export function VocabularyList({
         </div>
       )}
 
-      {/* 총 개수 & 전체 선택 */}
+      {/* 총 개수, 전체 선택 & 일괄 삭제 */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <p>
           표시 중인 단어 <span className="font-semibold text-foreground">{items.length}</span>개
           {selectedDateFilter !== 'all' && ` (전체 ${total}개)`}
         </p>
-        {items.length > 0 && (
-          <button
-            onClick={selectAll}
-            className="text-xs font-semibold text-primary hover:underline"
-          >
-            {selectedIds.size === items.length ? '전체 해제' : '현재 목록 전체 선택'}
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && onBatchDelete && (
+            <button
+              onClick={handleBatchDeleteClick}
+              className="text-xs font-semibold text-destructive hover:underline flex items-center gap-1"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              선택 {selectedIds.size}개 삭제
+            </button>
+          )}
+          {items.length > 0 && (
+            <button
+              onClick={selectAll}
+              className="text-xs font-semibold text-primary hover:underline"
+            >
+              {selectedIds.size === items.length ? '전체 해제' : '현재 목록 전체 선택'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 로딩 상태 */}
@@ -209,11 +286,16 @@ export function VocabularyList({
           {items.map((vocab) => {
             const diff = difficultyLabels[vocab.difficulty] ?? difficultyLabels[1];
             const isSelected = selectedIds.has(vocab.id);
+            const isMissing =
+              !vocab.meaning ||
+              vocab.meaning === '의미 미입력' ||
+              vocab.meaning === '의미 검색 필요' ||
+              vocab.meaning === '뜻 미입력';
 
             return (
               <Card
                 key={vocab.id}
-                className={`card-hover cursor-pointer transition-all ${
+                className={`card-hover cursor-pointer transition-all group ${
                   isSelected ? 'border-primary/50 bg-primary/5' : ''
                 }`}
                 onClick={() => onItemClick(vocab)}
@@ -240,13 +322,18 @@ export function VocabularyList({
                             {vocab.word}
                           </h3>
                           {vocab.partOfSpeech && (
-                            <span className="text-[11px] text-muted-foreground shrink-0">
+                            <span className="text-[11px] text-muted-foreground shrink-0 font-medium">
                               {vocab.partOfSpeech}
                             </span>
                           )}
+                          {vocab.pronunciation && (
+                            <span className="text-[11px] text-muted-foreground/70 shrink-0">
+                              {vocab.pronunciation}
+                            </span>
+                          )}
                         </div>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {vocab.meaning}
+                        <p className={`text-sm truncate ${isMissing ? 'text-amber-500 font-medium italic' : 'text-muted-foreground'}`}>
+                          {vocab.meaning || '의미 검색 필요'}
                         </p>
                         {vocab.exampleSentence && (
                           <p className="text-xs text-muted-foreground/70 mt-1 truncate italic">
@@ -256,13 +343,27 @@ export function VocabularyList({
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <Badge
-                        variant="secondary"
-                        className={`text-[10px] ${diff.color}`}
-                      >
-                        {diff.label}
-                      </Badge>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1">
+                        <Badge
+                          variant="secondary"
+                          className={`text-[10px] ${diff.color}`}
+                        >
+                          {diff.label}
+                        </Badge>
+                        {/* 간편 삭제 버튼 */}
+                        {onDeleteClick && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-70 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => handleDeleteItem(e, vocab.id)}
+                            title="단어 삭제"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                       <span className="text-[10px] text-muted-foreground">
                         {formatDateKey(vocab.createdAt)}
                       </span>
@@ -287,6 +388,16 @@ export function VocabularyList({
             </div>
 
             <div className="flex gap-1.5">
+              {onBatchDelete && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="font-bold text-xs gap-1 shadow-xs bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleBatchDeleteClick}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> 삭제
+                </Button>
+              )}
               <Link href={`/study?mode=learning`}>
                 <Button
                   size="sm"

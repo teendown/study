@@ -4,6 +4,7 @@
 
 import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
 import type { CreatePhraseInput, UpdatePhraseInput, SearchPhraseInput } from '../schemas/phraseSchemas';
+import { searchWordOnline, type WordSearchResult } from './dictionarySearch';
 
 const STORAGE_KEY_PHRASE = 'study_quest_phrases_v1';
 
@@ -144,3 +145,76 @@ export async function deletePhraseAction(id: string): Promise<ActionResult> {
   saveStoredPhrases(filtered);
   return { success: true, data: undefined };
 }
+
+export async function batchDeletePhrasesAction(
+  ids: string[]
+): Promise<ActionResult<{ deletedCount: number }>> {
+  const idSet = new Set(ids);
+  const all = getStoredPhrases();
+  const filtered = all.filter((p) => !idSet.has(p.id));
+  const deletedCount = all.length - filtered.length;
+  saveStoredPhrases(filtered);
+  return { success: true, data: { deletedCount } };
+}
+
+export async function autoFillMissingPhrasesAction(): Promise<
+  ActionResult<{ updatedCount: number; totalChecked: number }>
+> {
+  const all = getStoredPhrases();
+  let updatedCount = 0;
+
+  for (let i = 0; i < all.length; i++) {
+    const item = all[i];
+    const isMeaningMissing =
+      !item.meaning ||
+      item.meaning.trim() === '' ||
+      item.meaning === '의미 미입력' ||
+      item.meaning === '의미 검색 필요' ||
+      item.meaning === '뜻 미입력';
+
+    const isExampleMissing = !item.exampleSentence;
+
+    if (isMeaningMissing || isExampleMissing) {
+      try {
+        const searchResult = await searchWordOnline(item.phrase);
+        if (searchResult) {
+          let changed = false;
+          if (isMeaningMissing && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
+            item.meaning = searchResult.meaning;
+            changed = true;
+          }
+          if (!item.exampleSentence && searchResult.exampleSentence) {
+            item.exampleSentence = searchResult.exampleSentence;
+            item.exampleTranslation = searchResult.exampleTranslation || item.exampleTranslation;
+            changed = true;
+          }
+          if (changed) {
+            item.updatedAt = new Date().toISOString();
+            updatedCount++;
+          }
+        }
+      } catch {}
+    }
+  }
+
+  if (updatedCount > 0) {
+    saveStoredPhrases(all);
+  }
+
+  return { success: true, data: { updatedCount, totalChecked: all.length } };
+}
+
+export async function searchPhraseOnlineAction(
+  phrase: string
+): Promise<ActionResult<WordSearchResult>> {
+  try {
+    const result = await searchWordOnline(phrase);
+    return { success: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '숙어 검색에 실패했습니다.';
+    return { success: false, error: message };
+  }
+}
+
+
+

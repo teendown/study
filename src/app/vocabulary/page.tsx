@@ -12,10 +12,14 @@ import {
   addVocabularyAction,
   updateVocabularyAction,
   deleteVocabularyAction,
+  batchDeleteVocabulariesAction,
+  autoFillMissingVocabulariesAction,
   getPhrasesAction,
   addPhraseAction,
   updatePhraseAction,
   deletePhraseAction,
+  batchDeletePhrasesAction,
+  autoFillMissingPhrasesAction,
   type VocabularyWithItem,
   type VocabularyListResult,
   type CreateVocabularyInput,
@@ -28,103 +32,19 @@ import { Button } from '@/components/ui/button';
 import { OcrModal } from '@/features/ocr';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 
-// 샘플 단어
-const SAMPLE_VOCABULARY: VocabularyWithItem[] = [
-  {
-    id: 'sample-1',
-    word: 'abandon',
-    meaning: '포기하다, 버리다',
-    partOfSpeech: 'v.',
-    pronunciation: '[əˈbændən]',
-    audioUrl: null,
-    exampleSentence: 'He decided to abandon the risky project.',
-    exampleTranslation: '그는 위험한 프로젝트를 포기하기로 결정했다.',
-    synonyms: 'give up, quit, discard',
-    antonyms: 'maintain, keep, retain',
-    frequency: 'high',
-    difficulty: 2,
-    grade: 10,
-    source: '고1 필수 어휘',
-    learningItemId: 'item-1',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'sample-2',
-    word: 'significant',
-    meaning: '중요한, 의미심장한, 상당한',
-    partOfSpeech: 'adj.',
-    pronunciation: '[sɪɡˈnɪfɪkənt]',
-    audioUrl: null,
-    exampleSentence: 'There has been a significant increase in sales.',
-    exampleTranslation: '매출에 상당한 증가가 있었다.',
-    synonyms: 'important, substantial, notable',
-    antonyms: 'insignificant, trivial',
-    frequency: 'high',
-    difficulty: 3,
-    grade: 10,
-    source: '고1 교과서 어휘',
-    learningItemId: 'item-2',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-// 샘플 숙어
-const SAMPLE_PHRASES: PhraseWithItem[] = [
-  {
-    id: 'phrase-1',
-    phrase: 'look forward to',
-    meaning: '~를 고대하다, 기대하다',
-    exampleSentence: 'I look forward to seeing you soon.',
-    exampleTranslation: '곧 당신을 만나기를 고대합니다.',
-    difficulty: 2,
-    grade: 10,
-    source: '고1 필수 숙어',
-    learningItemId: 'p-item-1',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'phrase-2',
-    phrase: 'take part in',
-    meaning: '~에 참여하다, 참가하다',
-    exampleSentence: 'Many students took part in the contest.',
-    exampleTranslation: '많은 학생들이 그 대회에 참가했다.',
-    difficulty: 1,
-    grade: 10,
-    source: '고1 필수 숙어',
-    learningItemId: 'p-item-2',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'phrase-3',
-    phrase: 'carry out',
-    meaning: '수행하다, 실행하다',
-    exampleSentence: 'They carried out the scientific experiment.',
-    exampleTranslation: '그들은 과학 실험을 수행했다.',
-    difficulty: 3,
-    grade: 10,
-    source: '고1 교과서 숙어',
-    learningItemId: 'p-item-3',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
 export default function VocabularyPage() {
   const [activeTab, setActiveTab] = useState<'words' | 'phrases'>('words');
 
   // 단어 상태
   const [vocabData, setVocabData] = useState<VocabularyListResult>({
-    items: SAMPLE_VOCABULARY,
-    total: SAMPLE_VOCABULARY.length,
+    items: [],
+    total: 0,
     page: 1,
     limit: 20,
     totalPages: 1,
   });
   const [isVocabLoading, setIsVocabLoading] = useState(false);
+  const [isVocabAutoFilling, setIsVocabAutoFilling] = useState(false);
   const [selectedVocab, setSelectedVocab] = useState<VocabularyWithItem | null>(null);
   const [isVocabFormOpen, setIsVocabFormOpen] = useState(false);
   const [vocabFormMode, setVocabFormMode] = useState<'create' | 'edit'>('create');
@@ -132,13 +52,14 @@ export default function VocabularyPage() {
 
   // 숙어 상태
   const [phraseData, setPhraseData] = useState<PhraseListResult>({
-    items: SAMPLE_PHRASES,
-    total: SAMPLE_PHRASES.length,
+    items: [],
+    total: 0,
     page: 1,
     limit: 20,
     totalPages: 1,
   });
   const [isPhraseLoading, setIsPhraseLoading] = useState(false);
+  const [isPhraseAutoFilling, setIsPhraseAutoFilling] = useState(false);
   const [selectedPhrase, setSelectedPhrase] = useState<PhraseWithItem | null>(null);
   const [isPhraseFormOpen, setIsPhraseFormOpen] = useState(false);
   const [phraseFormMode, setPhraseFormMode] = useState<'create' | 'edit'>('create');
@@ -147,12 +68,63 @@ export default function VocabularyPage() {
   // OCR 모달 상태
   const [isOcrOpen, setIsOcrOpen] = useState(false);
 
+  // 단어 목록 로드
+  const loadVocabularies = useCallback(async (query: string = '') => {
+    setIsVocabLoading(true);
+    try {
+      const res = await getVocabulariesAction({ query });
+      if (res.success && res.data) {
+        setVocabData(res.data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsVocabLoading(false);
+    }
+  }, []);
+
+  // 숙어 목록 로드
+  const loadPhrases = useCallback(async (query: string = '') => {
+    setIsPhraseLoading(true);
+    try {
+      const res = await getPhrasesAction({ query });
+      if (res.success && res.data) {
+        setPhraseData(res.data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsPhraseLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const initData = async () => {
+      if (activeTab === 'words') {
+        await loadVocabularies();
+        // 백그라운드 자동 보강: 뜻이 누락된 단어가 있으면 자동 채우기 실행
+        const fillRes = await autoFillMissingVocabulariesAction();
+        if (fillRes.success && fillRes.data.updatedCount > 0) {
+          await loadVocabularies();
+        }
+      } else {
+        await loadPhrases();
+        const fillRes = await autoFillMissingPhrasesAction();
+        if (fillRes.success && fillRes.data.updatedCount > 0) {
+          await loadPhrases();
+        }
+      }
+    };
+    initData();
+  }, [activeTab, loadVocabularies, loadPhrases]);
+
+
   // OCR 추출 단어 일괄 저장 핸들러
   const handleOcrSaveWords = async (extracted: ExtractedWordCandidate[]) => {
     for (const item of extracted) {
       const input: CreateVocabularyInput = {
         word: item.word,
-        meaning: item.meaning || '의미 미입력',
+        meaning: item.meaning || '',
         partOfSpeech: item.partOfSpeech || '',
         pronunciation: '',
         exampleSentence: '',
@@ -165,73 +137,14 @@ export default function VocabularyPage() {
 
       try {
         await addVocabularyAction(input);
-      } catch {
-        // 로컬 mock 추가
-        const newLocal: VocabularyWithItem = {
-          id: `ocr-${item.word}-${Date.now()}`,
-          word: item.word,
-          meaning: item.meaning || '의미 미입력',
-          partOfSpeech: item.partOfSpeech || null,
-          pronunciation: null,
-          audioUrl: null,
-          exampleSentence: null,
-          exampleTranslation: null,
-          synonyms: null,
-          antonyms: null,
-          frequency: null,
-          difficulty: item.difficulty || 2,
-          grade: 10,
-          source: 'OCR 사진 수집',
-          learningItemId: `ocr-item-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        SAMPLE_VOCABULARY.unshift(newLocal);
-      }
+      } catch {}
     }
 
+    // 저장 후 뜻 누락 단어 자동 보강
+    await autoFillMissingVocabulariesAction();
     loadVocabularies();
-    alert(`총 ${extracted.length}개의 단어가 단어장에 성공적으로 등록되었습니다! 🎉`);
+    alert(`총 ${extracted.length}개의 단어가 등록 및 사전 자동 완성이 완료되었습니다! 🎉`);
   };
-  const loadVocabularies = useCallback(async (query: string = '') => {
-    setIsVocabLoading(true);
-    try {
-      const res = await getVocabulariesAction({ query });
-      if (res.success && res.data) {
-        setVocabData(res.data);
-      }
-    } catch {
-      const filtered = SAMPLE_VOCABULARY.filter(
-        (v) => v.word.toLowerCase().includes(query.toLowerCase()) || v.meaning.includes(query)
-      );
-      setVocabData({ items: filtered, total: filtered.length, page: 1, limit: 20, totalPages: 1 });
-    } finally {
-      setIsVocabLoading(false);
-    }
-  }, []);
-
-  // 숙어 로드
-  const loadPhrases = useCallback(async (query: string = '') => {
-    setIsPhraseLoading(true);
-    try {
-      const res = await getPhrasesAction({ query });
-      if (res.success && res.data) {
-        setPhraseData(res.data);
-      }
-    } catch {
-      const filtered = SAMPLE_PHRASES.filter(
-        (p) => p.phrase.toLowerCase().includes(query.toLowerCase()) || p.meaning.includes(query)
-      );
-      setPhraseData({ items: filtered, total: filtered.length, page: 1, limit: 20, totalPages: 1 });
-    } finally {
-      setIsPhraseLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'words') loadVocabularies();
-    else loadPhrases();
-  }, [activeTab, loadVocabularies, loadPhrases]);
 
   // 단어 CRUD 핸들러
   const handleVocabFormSubmit = async (input: CreateVocabularyInput) => {
@@ -241,51 +154,71 @@ export default function VocabularyPage() {
         if (res.success) {
           setIsVocabFormOpen(false);
           loadVocabularies();
-          return;
+        } else {
+          alert(res.error);
         }
-      } catch {}
-      const newItem: VocabularyWithItem = {
-        id: `local-${Date.now()}`,
-        word: input.word,
-        meaning: input.meaning,
-        partOfSpeech: input.partOfSpeech || null,
-        pronunciation: input.pronunciation || null,
-        audioUrl: null,
-        exampleSentence: input.exampleSentence || null,
-        exampleTranslation: input.exampleTranslation || null,
-        synonyms: input.synonyms || null,
-        antonyms: input.antonyms || null,
-        frequency: null,
-        difficulty: input.difficulty ?? 1,
-        grade: input.grade ?? null,
-        source: input.source || null,
-        learningItemId: `local-item-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      SAMPLE_VOCABULARY.unshift(newItem);
-      setVocabData((prev) => ({ ...prev, items: [newItem, ...prev.items], total: prev.total + 1 }));
-      setIsVocabFormOpen(false);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : '단어 등록 실패');
+      }
     } else if (vocabFormMode === 'edit' && selectedVocab) {
       try {
         await updateVocabularyAction(selectedVocab.id, input);
+        const updated = { ...selectedVocab, ...input, updatedAt: new Date().toISOString() } as VocabularyWithItem;
+        setSelectedVocab(updated);
+        setIsVocabFormOpen(false);
+        loadVocabularies();
       } catch {}
-      const updated = { ...selectedVocab, ...input, updatedAt: new Date().toISOString() } as VocabularyWithItem;
-      setSelectedVocab(updated);
-      setVocabData((prev) => ({ ...prev, items: prev.items.map((it) => (it.id === updated.id ? updated : it)) }));
-      setIsVocabFormOpen(false);
     }
   };
 
+  // 단어 단일 삭제
   const handleVocabDelete = async (id: string) => {
     if (!confirm('이 단어를 삭제하시겠습니까?')) return;
     try {
       await deleteVocabularyAction(id);
-    } catch {}
-    const idx = SAMPLE_VOCABULARY.findIndex((v) => v.id === id);
-    if (idx !== -1) SAMPLE_VOCABULARY.splice(idx, 1);
-    setVocabData((prev) => ({ ...prev, items: prev.items.filter((it) => it.id !== id), total: Math.max(0, prev.total - 1) }));
-    setSelectedVocab(null);
+      loadVocabularies();
+      if (selectedVocab?.id === id) {
+        setSelectedVocab(null);
+      }
+    } catch {
+      alert('단어 삭제에 실패했습니다.');
+    }
+  };
+
+  // 단어 일괄 삭제
+  const handleBatchVocabDelete = async (ids: string[]) => {
+    if (!confirm(`선택한 ${ids.length}개의 단어를 모두 삭제하시겠습니까?`)) return;
+    try {
+      const res = await batchDeleteVocabulariesAction(ids);
+      if (res.success) {
+        loadVocabularies();
+        if (selectedVocab && ids.includes(selectedVocab.id)) {
+          setSelectedVocab(null);
+        }
+      }
+    } catch {
+      alert('일괄 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 저장된 단어 중 누락된 뜻/정보 일괄 자동 채우기
+  const handleAutoFillMissingVocabs = async () => {
+    setIsVocabAutoFilling(true);
+    try {
+      const res = await autoFillMissingVocabulariesAction();
+      if (res.success) {
+        await loadVocabularies();
+        if (res.data.updatedCount > 0) {
+          alert(`🎉 ${res.data.updatedCount}개의 단어 뜻 및 정보를 사전에서 자동으로 채워 넣었습니다!`);
+        } else {
+          alert('모든 단어의 뜻과 정보가 이미 등록되어 있습니다.');
+        }
+      }
+    } catch {
+      alert('단어 정보 자동 채우기 중 오류가 발생했습니다.');
+    } finally {
+      setIsVocabAutoFilling(false);
+    }
   };
 
   // 숙어 CRUD 핸들러
@@ -296,45 +229,71 @@ export default function VocabularyPage() {
         if (res.success) {
           setIsPhraseFormOpen(false);
           loadPhrases();
-          return;
+        } else {
+          alert(res.error);
         }
-      } catch {}
-      const newItem: PhraseWithItem = {
-        id: `local-p-${Date.now()}`,
-        phrase: input.phrase,
-        meaning: input.meaning,
-        exampleSentence: input.exampleSentence || null,
-        exampleTranslation: input.exampleTranslation || null,
-        difficulty: input.difficulty ?? 1,
-        grade: input.grade ?? null,
-        source: input.source || null,
-        learningItemId: `local-pitem-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      SAMPLE_PHRASES.unshift(newItem);
-      setPhraseData((prev) => ({ ...prev, items: [newItem, ...prev.items], total: prev.total + 1 }));
-      setIsPhraseFormOpen(false);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : '숙어 등록 실패');
+      }
     } else if (phraseFormMode === 'edit' && selectedPhrase) {
       try {
         await updatePhraseAction(selectedPhrase.id, input);
+        const updated = { ...selectedPhrase, ...input, updatedAt: new Date().toISOString() } as PhraseWithItem;
+        setSelectedPhrase(updated);
+        setIsPhraseFormOpen(false);
+        loadPhrases();
       } catch {}
-      const updated = { ...selectedPhrase, ...input, updatedAt: new Date().toISOString() } as PhraseWithItem;
-      setSelectedPhrase(updated);
-      setPhraseData((prev) => ({ ...prev, items: prev.items.map((it) => (it.id === updated.id ? updated : it)) }));
-      setIsPhraseFormOpen(false);
     }
   };
 
+  // 숙어 단일 삭제
   const handlePhraseDelete = async (id: string) => {
     if (!confirm('이 숙어를 삭제하시겠습니까?')) return;
     try {
       await deletePhraseAction(id);
-    } catch {}
-    const idx = SAMPLE_PHRASES.findIndex((p) => p.id === id);
-    if (idx !== -1) SAMPLE_PHRASES.splice(idx, 1);
-    setPhraseData((prev) => ({ ...prev, items: prev.items.filter((it) => it.id !== id), total: Math.max(0, prev.total - 1) }));
-    setSelectedPhrase(null);
+      loadPhrases();
+      if (selectedPhrase?.id === id) {
+        setSelectedPhrase(null);
+      }
+    } catch {
+      alert('숙어 삭제에 실패했습니다.');
+    }
+  };
+
+  // 숙어 일괄 삭제
+  const handleBatchPhraseDelete = async (ids: string[]) => {
+    if (!confirm(`선택한 ${ids.length}개의 숙어를 모두 삭제하시겠습니까?`)) return;
+    try {
+      const res = await batchDeletePhrasesAction(ids);
+      if (res.success) {
+        loadPhrases();
+        if (selectedPhrase && ids.includes(selectedPhrase.id)) {
+          setSelectedPhrase(null);
+        }
+      }
+    } catch {
+      alert('일괄 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 저장된 숙어 중 누락된 뜻/예문 일괄 자동 채우기
+  const handleAutoFillMissingPhrases = async () => {
+    setIsPhraseAutoFilling(true);
+    try {
+      const res = await autoFillMissingPhrasesAction();
+      if (res.success) {
+        await loadPhrases();
+        if (res.data.updatedCount > 0) {
+          alert(`🎉 ${res.data.updatedCount}개의 숙어 뜻과 예문을 사전에서 자동으로 채워 넣었습니다!`);
+        } else {
+          alert('모든 숙어의 뜻과 예문이 이미 등록되어 있습니다.');
+        }
+      }
+    } catch {
+      alert('숙어 정보 자동 채우기 중 오류가 발생했습니다.');
+    } finally {
+      setIsPhraseAutoFilling(false);
+    }
   };
 
   return (
@@ -417,6 +376,10 @@ export default function VocabularyPage() {
                 setIsVocabFormOpen(true);
               }}
               onDelete={() => handleVocabDelete(selectedVocab.id)}
+              onVocabUpdated={(updated) => {
+                setSelectedVocab(updated);
+                loadVocabularies();
+              }}
             />
           ) : (
             <VocabularyList
@@ -428,6 +391,10 @@ export default function VocabularyPage() {
               }}
               onItemClick={(v) => setSelectedVocab(v)}
               onSearch={(q) => loadVocabularies(q)}
+              onDeleteClick={handleVocabDelete}
+              onBatchDelete={handleBatchVocabDelete}
+              onAutoFillMissing={handleAutoFillMissingVocabs}
+              isAutoFilling={isVocabAutoFilling}
               isLoading={isVocabLoading}
             />
           )}
@@ -465,6 +432,10 @@ export default function VocabularyPage() {
                 setIsPhraseFormOpen(true);
               }}
               onDelete={() => handlePhraseDelete(selectedPhrase.id)}
+              onPhraseUpdated={(updated) => {
+                setSelectedPhrase(updated);
+                loadPhrases();
+              }}
             />
           ) : (
             <PhraseList
@@ -476,6 +447,10 @@ export default function VocabularyPage() {
               }}
               onItemClick={(p) => setSelectedPhrase(p)}
               onSearch={(q) => loadPhrases(q)}
+              onDeleteClick={handlePhraseDelete}
+              onBatchDelete={handleBatchPhraseDelete}
+              onAutoFillMissing={handleAutoFillMissingPhrases}
+              isAutoFilling={isPhraseAutoFilling}
               isLoading={isPhraseLoading}
             />
           )}

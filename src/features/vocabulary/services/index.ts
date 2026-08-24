@@ -266,3 +266,91 @@ export async function deleteVocabularyAction(id: string): Promise<ActionResult> 
   saveStoredVocabs(filtered);
   return { success: true, data: undefined };
 }
+
+/**
+ * 단어 일괄 삭제
+ */
+export async function batchDeleteVocabulariesAction(
+  ids: string[]
+): Promise<ActionResult<{ deletedCount: number }>> {
+  const idSet = new Set(ids);
+  const all = getStoredVocabs();
+  const filtered = all.filter((v) => !idSet.has(v.id));
+  const deletedCount = all.length - filtered.length;
+  saveStoredVocabs(filtered);
+  return { success: true, data: { deletedCount } };
+}
+
+/**
+ * 저장된 단어 중 뜻이나 정보가 누락된 단어들을 자동으로 검색하여 채워넣기 (단어 자동 치유 & 보강)
+ */
+export async function autoFillMissingVocabulariesAction(): Promise<
+  ActionResult<{ updatedCount: number; totalChecked: number }>
+> {
+  const all = getStoredVocabs();
+  let updatedCount = 0;
+
+  for (let i = 0; i < all.length; i++) {
+    const item = all[i];
+    const isMeaningMissing =
+      !item.meaning ||
+      item.meaning.trim() === '' ||
+      item.meaning === '의미 미입력' ||
+      item.meaning === '의미 검색 필요' ||
+      item.meaning === '뜻 미입력';
+
+    const isInfoIncomplete = !item.partOfSpeech || !item.pronunciation || !item.exampleSentence;
+
+    if (isMeaningMissing || isInfoIncomplete) {
+      try {
+        const searchResult = await searchWordOnline(item.word);
+        if (searchResult) {
+          let changed = false;
+          if (isMeaningMissing && searchResult.meaning && searchResult.meaning !== '의미 검색 필요') {
+            item.meaning = searchResult.meaning;
+            changed = true;
+          }
+          if (!item.partOfSpeech && searchResult.partOfSpeech) {
+            item.partOfSpeech = searchResult.partOfSpeech;
+            changed = true;
+          }
+          if (!item.pronunciation && searchResult.pronunciation) {
+            item.pronunciation = searchResult.pronunciation;
+            changed = true;
+          }
+          if (!item.exampleSentence && searchResult.exampleSentence) {
+            item.exampleSentence = searchResult.exampleSentence;
+            item.exampleTranslation = searchResult.exampleTranslation || item.exampleTranslation;
+            changed = true;
+          }
+          if (!item.synonyms && searchResult.synonyms) {
+            item.synonyms = searchResult.synonyms;
+            changed = true;
+          }
+          if (!item.antonyms && searchResult.antonyms) {
+            item.antonyms = searchResult.antonyms;
+            changed = true;
+          }
+          if (changed) {
+            item.updatedAt = new Date().toISOString();
+            updatedCount++;
+          }
+        }
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  if (updatedCount > 0) {
+    saveStoredVocabs(all);
+  }
+
+  return { success: true, data: { updatedCount, totalChecked: all.length } };
+}
+
+export * from './phraseActions';
+export * from './dictionarySearch';
+
+
+

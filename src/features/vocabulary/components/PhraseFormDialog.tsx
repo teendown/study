@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { searchPhraseOnlineAction } from '../services';
 import type { CreatePhraseInput } from '../schemas/phraseSchemas';
 
 interface PhraseFormDialogProps {
@@ -37,6 +38,8 @@ export function PhraseFormDialog({
   mode = 'create',
 }: PhraseFormDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const [searchSuccessMessage, setSearchSuccessMessage] = useState('');
   const [error, setError] = useState('');
 
   const [phrase, setPhrase] = useState(initialData?.phrase ?? '');
@@ -45,6 +48,82 @@ export function PhraseFormDialog({
   const [exampleTranslation, setExampleTranslation] = useState(initialData?.exampleTranslation ?? '');
   const [difficulty, setDifficulty] = useState(initialData?.difficulty ?? 1);
   const [source, setSource] = useState(initialData?.source ?? '');
+
+  const lastSearchedPhrase = useRef<string>('');
+
+  useEffect(() => {
+    if (open) {
+      setError('');
+      setSearchSuccessMessage('');
+      if (initialData) {
+        setPhrase(initialData.phrase ?? '');
+        setMeaning(initialData.meaning ?? '');
+        setExampleSentence(initialData.exampleSentence ?? '');
+        setExampleTranslation(initialData.exampleTranslation ?? '');
+        setDifficulty(initialData.difficulty ?? 1);
+        setSource(initialData.source ?? '');
+        lastSearchedPhrase.current = initialData.phrase ?? '';
+      } else {
+        setPhrase('');
+        setMeaning('');
+        setExampleSentence('');
+        setExampleTranslation('');
+        setDifficulty(1);
+        setSource('');
+        lastSearchedPhrase.current = '';
+      }
+    }
+  }, [open, initialData]);
+
+  // 숙어 온라인 자동 검색
+  const executeSearch = async (targetPhrase: string, isManual = false) => {
+    const clean = targetPhrase.trim();
+    if (!clean) {
+      if (isManual) setError('검색할 숙어를 먼저 입력해주세요.');
+      return;
+    }
+    if (!isManual && clean === lastSearchedPhrase.current) {
+      return;
+    }
+
+    setError('');
+    setSearchSuccessMessage('');
+    setIsSearchingOnline(true);
+    lastSearchedPhrase.current = clean;
+
+    try {
+      const res = await searchPhraseOnlineAction(clean);
+      if (res.success && res.data) {
+        const d = res.data;
+        if (d.meaning && d.meaning !== '의미 검색 필요') {
+          setMeaning(d.meaning);
+        }
+        if (d.exampleSentence) setExampleSentence(d.exampleSentence);
+        if (d.exampleTranslation) setExampleTranslation(d.exampleTranslation);
+        if (d.source) setSource(d.source);
+
+        setSearchSuccessMessage(
+          d.source ? `✨ [${d.source}] 숙어 정보가 자동 입력되었습니다.` : '✨ 숙어 정보가 자동 입력되었습니다.'
+        );
+      } else if (!res.success) {
+        if (isManual) setError(res.error || '숙어 정보를 찾지 못했습니다.');
+      }
+    } catch {
+      if (isManual) setError('숙어 검색 중 오류가 발생했습니다.');
+    } finally {
+      setIsSearchingOnline(false);
+    }
+  };
+
+  const handleManualSearch = () => {
+    executeSearch(phrase, true);
+  };
+
+  const handlePhraseBlur = () => {
+    if (phrase.trim().length >= 3 && !meaning.trim()) {
+      executeSearch(phrase, false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,6 +156,7 @@ export function PhraseFormDialog({
         setExampleTranslation('');
         setDifficulty(1);
         setSource('');
+        lastSearchedPhrase.current = '';
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류가 발생했습니다.');
@@ -101,18 +181,55 @@ export function PhraseFormDialog({
             </div>
           )}
 
-          {/* 필수: 숙어 */}
+          {searchSuccessMessage && (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>{searchSuccessMessage}</span>
+            </div>
+          )}
+
+          {/* 필수: 숙어 & 자동 검색 */}
           <div className="space-y-1.5">
             <Label htmlFor="form-phrase">
               숙어 <span className="text-destructive">*</span>
             </Label>
-            <Input
-              id="form-phrase"
-              placeholder="look forward to"
-              value={phrase}
-              onChange={(e) => setPhrase(e.target.value)}
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <Input
+                id="form-phrase"
+                placeholder="예: look forward to, take care of"
+                value={phrase}
+                onChange={(e) => {
+                  setPhrase(e.target.value);
+                  setSearchSuccessMessage('');
+                }}
+                onBlur={handlePhraseBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleManualSearch();
+                  }
+                }}
+                autoFocus
+                className="text-base font-semibold"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="font-bold gap-1.5 shrink-0 border border-primary/30 hover:bg-primary/10 text-primary"
+                onClick={handleManualSearch}
+                disabled={isSearchingOnline || !phrase.trim()}
+              >
+                {isSearchingOnline ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                자동 검색
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              숙어 입력 후 <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">Enter</kbd> 또는 [자동 검색]을 누르면 뜻과 예문이 자동 완성됩니다.
+            </p>
           </div>
 
           {/* 필수: 뜻 */}
@@ -122,7 +239,7 @@ export function PhraseFormDialog({
             </Label>
             <Input
               id="form-phrase-meaning"
-              placeholder="~를 고대하다, 기대하다"
+              placeholder="예: ~를 고대하다, 기대하다"
               value={meaning}
               onChange={(e) => setMeaning(e.target.value)}
             />
@@ -154,20 +271,20 @@ export function PhraseFormDialog({
           {/* 난이도 & 출처 */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="form-phrase-diff">난이도</Label>
+              <Label htmlFor="form-phrase-difficulty">난이도</Label>
               <Select
                 value={String(difficulty)}
                 onValueChange={(v) => setDifficulty(v ? Number(v) : 1)}
               >
-                <SelectTrigger id="form-phrase-diff">
+                <SelectTrigger id="form-phrase-difficulty">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">⭐ 기초</SelectItem>
+                  <SelectItem value="1">⭐ 매우 쉬움</SelectItem>
                   <SelectItem value="2">⭐⭐ 쉬움</SelectItem>
-                  <SelectItem value="3">⭐⭐⭐ 필수</SelectItem>
-                  <SelectItem value="4">⭐⭐⭐⭐ 심화</SelectItem>
-                  <SelectItem value="5">⭐⭐⭐⭐⭐ 고난도</SelectItem>
+                  <SelectItem value="3">⭐⭐⭐ 보통</SelectItem>
+                  <SelectItem value="4">⭐⭐⭐⭐ 어려움</SelectItem>
+                  <SelectItem value="5">⭐⭐⭐⭐⭐ 매우 어려움</SelectItem>
                 </SelectContent>
               </Select>
             </div>
