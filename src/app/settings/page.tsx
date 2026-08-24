@@ -28,6 +28,7 @@ import {
 } from '@/features/game';
 import { BackgroundSettingsDialog } from '@/features/theme/components/BackgroundSettingsDialog';
 import { useBackgroundTheme } from '@/features/theme/hooks/useBackgroundTheme';
+import { GeminiSettingsCard } from '@/features/settings/components/GeminiSettingsCard';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'stats' | 'parent' | 'achievements' | 'config'>('stats');
@@ -141,6 +142,9 @@ export default function SettingsPage() {
          ──────────────────────────────────── */}
       {activeTab === 'config' && (
         <div className="space-y-4">
+          {/* 🌟 Google Gemini AI 사전 & 번역 설정 카드 */}
+          <GeminiSettingsCard />
+
           {/* 🌟 커스텀 배경화면 & 내 사진 설정 카드 */}
           <Card className="border-primary/30 shadow-xs">
             <CardHeader className="pb-3">

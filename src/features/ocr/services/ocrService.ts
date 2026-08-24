@@ -1,14 +1,11 @@
-// ===========================
-// OCR Processing Service (Enhanced with Preprocessing & High Accuracy Engine)
-// ===========================
-// 설계서 섹션 11, 28, 61 기반
-
 import { createWorker } from 'tesseract.js';
 import { extractEnglishWords, type ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 import { searchWordOnline, sanitizeMeaningText } from '@/features/vocabulary/services/dictionarySearch';
 import { preprocessImageForOcr } from '@/lib/ocr/imagePreprocessor';
 import { reconstructPassageText, splitPassageIntoSentences } from '@/lib/ocr/textCleaner';
+import { extractFromImageWithGemini, getGeminiApiKey } from '@/lib/ai/geminiService';
+import { convertToKoreanPronunciation } from '@/features/vocabulary/services/koreanPronunciation';
 
 export interface RecognizeImageOptions {
   imageSource: File | Blob | string;
@@ -24,14 +21,60 @@ export interface OcrRecognitionResult {
 }
 
 /**
- * 이미지 전처리(그림자 제거/대비 극대화/선명화) + Tesseract 최적화 + 사후 오탈자 교정 + 단어/숙어 통합 추출 파이프라인
+ * 이미지 전처리 + Google Gemini AI Vision (1순위) + Tesseract OCR (2순위 Fallback) 단어/숙어/표/지문 통합 추출 파이프라인
  */
 export async function recognizeAndExtractWords({
   imageSource,
   onProgress,
 }: RecognizeImageOptions): Promise<OcrRecognitionResult> {
+  // 🌟 [1순위] Google Gemini AI Vision 지능형 표(Table) & 지문 다차원 분석
+  if (getGeminiApiKey()) {
+    onProgress?.(20, 'Google Gemini AI 비전 엔진 준비 중...');
+    try {
+      onProgress?.(40, 'AI가 이미지 속 단어장 표와 지문을 정밀 검수하는 중...');
+      const geminiVisionResult = await extractFromImageWithGemini(imageSource);
+      if (geminiVisionResult && (geminiVisionResult.words.length > 0 || geminiVisionResult.phrases.length > 0 || geminiVisionResult.passageText)) {
+        onProgress?.(85, '추출된 단어 및 숙어 학습 데이터 구성 중...');
+
+        const candidates: ExtractedWordCandidate[] = geminiVisionResult.words.map((w, idx) => ({
+          id: `ocr-ai-w-${idx}-${Date.now()}`,
+          word: w.text.trim(),
+          meaning: sanitizeMeaningText(w.meaning, w.text) || w.meaning,
+          partOfSpeech: w.partOfSpeech || 'n.',
+          pronunciation: w.pronunciation || convertToKoreanPronunciation('', w.text),
+          difficulty: w.difficulty || 2,
+          selected: true,
+          sourceText: w.text.trim(),
+        }));
+
+        const phraseCandidates: ExtractedPhraseResult[] = geminiVisionResult.phrases.map((p, idx) => ({
+          id: `ocr-ai-p-${idx}-${Date.now()}`,
+          phrase: p.text.trim(),
+          meaning: sanitizeMeaningText(p.meaning, p.text) || p.meaning,
+          matchedText: p.text.trim(),
+          startIndex: 0,
+          endIndex: p.text.trim().length,
+          difficulty: p.difficulty || 2,
+          pattern: 'idiom',
+          selected: true,
+        }));
+
+        onProgress?.(100, 'AI 분석 및 단어장 추출 완료!');
+        return {
+          rawText: geminiVisionResult.rawText || geminiVisionResult.passageText,
+          passageText: geminiVisionResult.passageText,
+          sentences: geminiVisionResult.sentences,
+          candidates,
+          phraseCandidates,
+        };
+      }
+    } catch (err) {
+      console.warn('Gemini Vision recognition fallback to Tesseract:', err);
+    }
+  }
+
   // 1단계: 캔버스 기반 이미지 전처리 (노이즈 제거, 흑백 대비 극대화, 선명화)
-  onProgress?.(10, '이미지 화질 개선 및 선명화 처리 중...');
+  onProgress?.(15, '이미지 화질 개선 및 선명화 처리 중...');
   let processedImage: string;
   try {
     processedImage = await preprocessImageForOcr(imageSource);

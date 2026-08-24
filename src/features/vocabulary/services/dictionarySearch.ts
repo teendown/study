@@ -5,6 +5,7 @@
 
 import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { convertToKoreanPronunciation } from './koreanPronunciation';
+import { analyzeWordWithGemini, translateWithGemini, getGeminiApiKey } from '@/lib/ai/geminiService';
 
 export interface WordSearchResult {
   word: string;
@@ -348,6 +349,16 @@ export async function translateToKorean(text: string): Promise<string> {
   if (!text) return '';
   const clean = text.trim();
 
+  // 0. Google Gemini AI 고품질 번역 (API Key가 설정되어 있는 경우 최우선)
+  if (getGeminiApiKey()) {
+    try {
+      const geminiTrans = await translateWithGemini(clean);
+      if (geminiTrans && /[가-힣]/.test(geminiTrans)) {
+        return cleanText(geminiTrans);
+      }
+    } catch {}
+  }
+
   // 1. Google Translate GTX API (0.05초 초고속 실시간 번역)
   try {
     const controller = new AbortController();
@@ -615,6 +626,27 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     };
   }
 
+  // 2. Gemini AI 초정밀 어휘 분석 (API Key 설정 시 최우선)
+  if (getGeminiApiKey()) {
+    try {
+      const geminiResult = await analyzeWordWithGemini(cleanWord);
+      if (geminiResult && geminiResult.meaning) {
+        return {
+          word: cleanWord,
+          meaning: sanitizeMeaningText(geminiResult.meaning, cleanWord),
+          partOfSpeech: normalizePartOfSpeech(geminiResult.partOfSpeech, cleanWord),
+          pronunciation: geminiResult.pronunciation || convertToKoreanPronunciation('', cleanWord),
+          exampleSentence: geminiResult.exampleSentence,
+          exampleTranslation: geminiResult.exampleTranslation,
+          synonyms: geminiResult.synonyms,
+          antonyms: geminiResult.antonyms,
+          source: 'Google Gemini AI',
+          naverDictUrl,
+        };
+      }
+    } catch {}
+  }
+
   let meaning = '';
   let partOfSpeech = normalizePartOfSpeech('', cleanWord);
   let pronunciation = '';
@@ -624,7 +656,7 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   let antonyms = '';
   let source = '네이버 영어사전';
 
-  // 2. 2순위: 네이버 영어사전 API 실시간 검색
+  // 3. 2순위: 네이버 영어사전 API 실시간 검색
   try {
     const naverRes = await fetchNaverDictionary(cleanWord);
     if (naverRes && naverRes.meaning) {
