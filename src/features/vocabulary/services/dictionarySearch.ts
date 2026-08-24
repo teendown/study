@@ -86,7 +86,10 @@ async function fetchWiktionary(cleanWord: string) {
 
     const ipaMatch = extract.match(/IPA\s*(?:\(표기\))?:\s*\/([^\/]+)\/|IPA\s*\[([^\]]+)\]/);
     if (ipaMatch) {
-      pronunciation = `[${ipaMatch[1] || ipaMatch[2]}]`;
+      const rawIpa = (ipaMatch[1] || ipaMatch[2]).replace(/^[\[\/]+|[\]\/]+$/g, '').trim();
+      if (rawIpa) {
+        pronunciation = `[${rawIpa}]`;
+      }
     }
 
     let inEng = false;
@@ -100,6 +103,7 @@ async function fetchWiktionary(cleanWord: string) {
       if (inEng && line.startsWith('== ') && !line.includes('영어')) {
         break;
       }
+      if (!inEng) continue;
 
       if (line.includes('=== 명사 ===') || line.includes('==== 명사 ====')) currentPos = currentPos || 'n.';
       else if (line.includes('=== 동사 ===') || line.includes('==== 타동사 ====') || line.includes('==== 자동사 ====')) currentPos = currentPos || 'v.';
@@ -114,7 +118,7 @@ async function fetchWiktionary(cleanWord: string) {
         line.startsWith('어원') ||
         line.startsWith('IPA') ||
         line.startsWith('참조') ||
-        line.startsWith('관련') ||
+        line.startsWith('관용구') ||
         line.startsWith('유의어') ||
         line.startsWith('동의어') ||
         line.startsWith('반의어') ||
@@ -124,17 +128,24 @@ async function fetchWiktionary(cleanWord: string) {
       }
 
       if (/[가-힣]/.test(line)) {
-        const match = line.match(/^([A-Z][a-zA-Z0-9\s,.'’"-]+)\s+([가-힣\s,.'~?!]+)/);
-        if (match && match[1].length > 10 && !exampleSentence) {
+        const match = line.match(/^([A-Z][a-zA-Z0-9\s,.'’"-]+)\s{2,}([가-힣\s,.'~?!]+)/);
+        if (match && !exampleSentence) {
           exampleSentence = match[1].trim();
           exampleTranslation = match[2].trim();
-        } else {
+        } else if (!line.includes(':') && !line.includes('따옴◄') && line.length < 40) {
           const cleaned = line
             .replace(/^\d+\.\s*/, '')
             .replace(/\([^)]+\)/g, '')
             .replace(/\s+/g, ' ')
             .trim();
-          if (cleaned && cleaned.length > 1 && !cleaned.includes('IPA')) {
+          if (
+            cleaned &&
+            cleaned.length >= 1 &&
+            !cleaned.includes('IPA') &&
+            !meanings.includes(cleaned) &&
+            !cleaned.includes('참는다') &&
+            !cleaned.includes('속담')
+          ) {
             meanings.push(cleaned);
           }
         }
@@ -144,7 +155,7 @@ async function fetchWiktionary(cleanWord: string) {
     if (meanings.length === 0) return null;
 
     return {
-      meaning: meanings.slice(0, 3).join(', '),
+      meaning: meanings.slice(0, 2).join(', '),
       partOfSpeech: normalizePartOfSpeech(currentPos, cleanWord),
       pronunciation,
       exampleSentence,
@@ -173,7 +184,10 @@ async function fetchFreeDictionary(cleanWord: string) {
     if (!Array.isArray(data) || data.length === 0) return null;
 
     const entry = data[0];
-    const pronunciation = entry.phonetic || entry.phonetics?.find((p: { text?: string }) => p.text)?.text || '';
+    const rawPhonetic = entry.phonetic || entry.phonetics?.find((p: { text?: string }) => p.text)?.text || '';
+    const cleanPhonetic = rawPhonetic ? rawPhonetic.replace(/^[\[\/]+|[\]\/]+$/g, '').trim() : '';
+    const pronunciation = cleanPhonetic ? `[${cleanPhonetic}]` : '';
+
     let partOfSpeech = '';
     let exampleSentence = '';
     let synonyms = '';
@@ -197,7 +211,7 @@ async function fetchFreeDictionary(cleanWord: string) {
     }
 
     return {
-      pronunciation: pronunciation ? `[${pronunciation.replace(/\[|\]/g, '')}]` : '',
+      pronunciation,
       partOfSpeech: normalizePartOfSpeech(partOfSpeech, cleanWord),
       exampleSentence,
       synonyms,

@@ -155,7 +155,16 @@ export const BUILTIN_DICTIONARY: Record<string, DictEntry> = {
   influence: { meaning: '영향을 주다, 영향력', pos: 'v.', pron: '[ˈɪnfluəns]', ex: 'Friends influence each other greatly.', exTrans: '친구들은 서로에게 큰 영향을 준다.', syn: 'affect, sway', diff: 2 },
   initial: { meaning: '처음의, 초기의', pos: 'adj.', pron: '[ɪˈnɪʃl]', ex: 'My initial impression was positive.', exTrans: '나의 첫인상은 긍정적이었다.', syn: 'first, early', diff: 2 },
   inspire: { meaning: '영감을 주다, 고무하다', pos: 'v.', pron: '[ɪnˈspaɪər]', ex: 'Her story inspired many students.', exTrans: '그녀의 이야기는 많은 학생들에게 영감을 주었다.', syn: 'motivate, encourage', diff: 2 },
+  // L
+  learn: { meaning: '배우다, 학습하다', pos: 'v.', pron: '[lɜːrn]', ex: 'Children learn languages quickly.', exTrans: '아이들은 언어를 빠르게 배운다.', syn: 'study, acquire', diff: 1 },
+  leave: { meaning: '떠나다, 남기다', pos: 'v.', pron: '[liːv]', ex: 'The train leaves at 6 PM.', exTrans: '기차는 오후 6시에 떠난다.', syn: 'depart, quit', diff: 1 },
+  life: { meaning: '삶, 인생, 생명', pos: 'n.', pron: '[laɪf]', ex: 'She enjoys living a peaceful life.', exTrans: '그녀는 평화로운 삶을 사는 것을 즐긴다.', diff: 1 },
+  like: { meaning: '좋아하다, 마음에 들다, ~처럼', pos: 'v.', pron: '[laɪk]', ex: 'I like reading books in my free time.', exTrans: '나는 여가 시간에 책 읽는 것을 좋아한다.', syn: 'enjoy, prefer', ant: 'dislike', diff: 1 },
+  listen: { meaning: '듣다, 귀를 기울이다', pos: 'v.', pron: '[ˈlɪsn]', ex: 'Listen carefully to the instructions.', exTrans: '안내 사항을 주의 깊게 들으세요.', syn: 'hear, heed', diff: 1 },
+  live: { meaning: '살다, 거주하다, 생생한', pos: 'v.', pron: '[lɪv]', ex: 'They live in a beautiful city.', exTrans: '그들은 아름다운 도시에 산다.', diff: 1 },
+  love: { meaning: '사랑하다, 사랑, 아주 좋아하다', pos: 'v.', pron: '[lʌv]', ex: 'They fell in love at first sight.', exTrans: '그들은 첫눈에 사랑에 빠졌다.', syn: 'adore, cherish, like', ant: 'hate', diff: 1 },
   maintain: { meaning: '유지하다, 지속하다', pos: 'v.', pron: '[meɪnˈteɪn]', ex: 'Maintain a good habit every day.', exTrans: '매일 좋은 습관을 유지하세요.', syn: 'preserve, sustain', ant: 'abandon', diff: 2 },
+
 
   // M - R
   occur: { meaning: '발생하다, 일어나다', pos: 'v.', pron: '[əˈkɜːr]', ex: 'The accident occurred at midnight.', exTrans: '그 사고는 자정에 일어났다.', syn: 'happen, take place', diff: 2 },
