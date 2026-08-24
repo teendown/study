@@ -136,25 +136,40 @@ export default function VocabularyPage() {
     }
   }, []);
 
+  // 🚀 첫 마운트 시 단어, 숙어, 지문 데이터를 병렬로 모두 로드하여 상단 탭 카운트 즉시 표시
   useEffect(() => {
-    const initData = async () => {
-      if (activeTab === 'words') {
-        await loadVocabularies();
-        const fillRes = await autoFillMissingVocabulariesAction();
-        if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
-          await loadVocabularies();
+    const fetchAllInitialData = async () => {
+      await Promise.all([
+        loadVocabularies(),
+        loadPhrases(),
+        loadPassages(),
+      ]);
+
+      // 비동기 누락 데이터 보충
+      autoFillMissingVocabulariesAction().then((res) => {
+        if (res.success && (res.data?.updatedCount ?? 0) > 0) {
+          loadVocabularies();
         }
-      } else if (activeTab === 'phrases') {
-        await loadPhrases();
-        const fillRes = await autoFillMissingPhrasesAction();
-        if (fillRes.success && (fillRes.data?.updatedCount ?? 0) > 0) {
-          await loadPhrases();
+      });
+      autoFillMissingPhrasesAction().then((res) => {
+        if (res.success && (res.data?.updatedCount ?? 0) > 0) {
+          loadPhrases();
         }
-      } else if (activeTab === 'passages') {
-        await loadPassages();
-      }
+      });
     };
-    initData();
+
+    fetchAllInitialData();
+  }, [loadVocabularies, loadPhrases, loadPassages]);
+
+  // 탭 전환 시 해당 탭 최신 데이터 갱신
+  useEffect(() => {
+    if (activeTab === 'words') {
+      loadVocabularies();
+    } else if (activeTab === 'phrases') {
+      loadPhrases();
+    } else if (activeTab === 'passages') {
+      loadPassages();
+    }
   }, [activeTab, loadVocabularies, loadPhrases, loadPassages]);
 
   // OCR 추출 단어 일괄 저장 핸들러

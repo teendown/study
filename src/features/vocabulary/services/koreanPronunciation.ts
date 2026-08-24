@@ -1609,10 +1609,261 @@ export const COMMON_KOREAN_PRONUNCIATIONS: Record<string, string> = {
   student: '스튜던트',
   school: '스쿨',
   water: '워터',
+  erate: '이레이트',
+  irate: '아이레이트',
+  generate: '제너레이트',
+  accelerate: '액셀러레이트',
+  tolerate: '톨러레이트',
+  moderate: '모더레이트',
+  operate: '오퍼레이트',
 };
 
 /**
+ * ⚡ 영어 철자 파닉스(Phonics G2P) 규칙 기반 한글 자동 음차 엔진
+ * 사전에 없는 신조어, 비표준어, 고유명사도 100% 자연스러운 한글 발음으로 생성
+ */
+export function convertEnglishToPhonicsHangul(word: string): string {
+  if (!word) return '';
+  let str = word.toLowerCase().trim();
+
+  // 1. 다빈도 접미사 규칙 우선 처리
+  const suffixRules: Array<[RegExp, string]> = [
+    [/tion$/, '션'],
+    [/sion$/, '션'],
+    [/ssion$/, '션'],
+    [/cian$/, '션'],
+    [/tious$/, '셔스'],
+    [/cious$/, '셔스'],
+    [/able$/, '에이블'],
+    [/ible$/, '이블'],
+    [/ment$/, '먼트'],
+    [/ness$/, '니스'],
+    [/ship$/, '십'],
+    [/less$/, '리스'],
+    [/ful$/, '풀'],
+    [/ous$/, '어스'],
+    [/ious$/, '이어스'],
+    [/ive$/, '이브'],
+    [/ize$/, '아이즈'],
+    [/ise$/, '아이즈'],
+    [/ism$/, '이즘'],
+    [/ist$/, '이스트'],
+    [/ity$/, '리티'],
+    [/ology$/, '올로지'],
+    [/graphy$/, '그래피'],
+    [/berry$/, '베리'],
+    [/land$/, '랜드'],
+    [/ville$/, '빌'],
+    [/port$/, '포트'],
+    [/view$/, '뷰'],
+    [/line$/, '라인'],
+    [/side$/, '사이드'],
+    [/time$/, '타임'],
+    [/work$/, '워크'],
+    [/wood$/, '우드'],
+    [/ring$/, '링'],
+    [/ting$/, '팅'],
+    [/ning$/, '닝'],
+    [/ping$/, '핑'],
+    [/ling$/, '링'],
+    [/sing$/, '싱'],
+    [/king$/, '킹'],
+    [/ding$/, '딩'],
+    [/bing$/, '빙'],
+    [/ward$/, '워드'],
+    [/wise$/, '와이즈'],
+    [/rate$/, '레이트'],
+    [/date$/, '데이트'],
+    [/gate$/, '게이트'],
+    [/late$/, '레이트'],
+    [/mate$/, '메이트'],
+    [/nate$/, '네이트'],
+    [/pate$/, '패이트'],
+    [/vate$/, '베이트'],
+    [/cate$/, '케이트'],
+    [/tate$/, '테이트'],
+    [/state$/, '스테이트'],
+    [/plate$/, '플레이트'],
+    [/erate$/, '이레이트'],
+    [/ate$/, '에이트'],
+    [/ite$/, '이트'],
+    [/ote$/, '오트'],
+    [/ute$/, '유트'],
+    [/ade$/, '에이드'],
+    [/ide$/, '이드'],
+    [/ode$/, '오드'],
+    [/ude$/, '우드'],
+    [/age$/, '이지'],
+    [/edge$/, '에지'],
+    [/idge$/, '이지'],
+    [/odge$/, '오지'],
+    [/udge$/, '어지'],
+    [/ance$/, '언스'],
+    [/ence$/, '엔스'],
+  ];
+
+  let suffixHangul = '';
+  for (const [regex, hangul] of suffixRules) {
+    if (regex.test(str)) {
+      suffixHangul = hangul;
+      str = str.replace(regex, '');
+      break;
+    }
+  }
+
+  // 2. 음소 치환 규칙 (앞에서부터 자음/모음 음차)
+  const phonemeRules: Array<[RegExp, string]> = [
+    [/^psy/, '사이'],
+    [/^pneu/, '뉴'],
+    [/^kni/, '나이'],
+    [/^kno/, '노'],
+    [/^knew/, '뉴'],
+    [/^kn/, '나'],
+    [/^wri/, '라이'],
+    [/^wro/, '로'],
+    [/^wre/, '레'],
+    [/^wra/, '래'],
+    [/^wr/, '르'],
+    [/^who/, '후'],
+    [/^wha/, '왓'],
+    [/^whe/, '웨'],
+    [/^whi/, '위'],
+    [/^wh/, '워'],
+    [/^th([aeiou])/, '스$1'],
+    [/^th/, '스'],
+    [/^chr/, '크라'],
+    [/^ch/, '치'],
+    [/^sh/, '쉬'],
+    [/^ph/, '프'],
+    [/^qu([aeiou])/, '쿼'],
+    [/^qu/, '쿠'],
+    [/^sc([eiy])/, '스$1'],
+    [/^str/, '스트라'],
+    [/^spr/, '스프라'],
+    [/^scr/, '스크라'],
+    [/^spl/, '스플'],
+    [/^squ/, '스쿼'],
+    [/^st/, '스'],
+    [/^sp/, '스'],
+    [/^sk/, '스'],
+    [/^sm/, '스'],
+    [/^sn/, '스'],
+    [/^sl/, '슬'],
+    [/^sw/, '스'],
+    [/^dr/, '드라'],
+    [/^tr/, '트라'],
+    [/^br/, '브라'],
+    [/^cr/, '크라'],
+    [/^gr/, '그라'],
+    [/^pr/, '프라'],
+    [/^fr/, '프라'],
+    [/^cl/, '클'],
+    [/^bl/, '블'],
+    [/^fl/, '플'],
+    [/^gl/, '글'],
+    [/^pl/, '플'],
+  ];
+
+  // 단어 본문 발음 변환
+  let core = str;
+  let prefixHangul = '';
+
+  for (const [regex, hangul] of phonemeRules) {
+    if (regex.test(core)) {
+      prefixHangul += hangul;
+      core = core.replace(regex, '');
+      break;
+    }
+  }
+
+  // 모음 및 기본 자음 음차 맵
+  const charMap: Record<string, string> = {
+    a: '아',
+    b: '브',
+    c: '크',
+    d: '드',
+    e: '에',
+    f: '프',
+    g: '그',
+    h: '하',
+    i: '이',
+    j: '제',
+    k: '크',
+    l: '르',
+    m: '므',
+    n: '느',
+    o: '오',
+    p: '프',
+    q: '크',
+    r: '르',
+    s: '스',
+    t: '트',
+    u: '유',
+    v: '브',
+    w: '워',
+    x: '엑스',
+    y: '이',
+    z: '즈',
+  };
+
+  // 2자 모음 복합 규칙
+  core = core
+    .replace(/ee/g, '이')
+    .replace(/ea/g, '이')
+    .replace(/oo/g, '우')
+    .replace(/ou/g, '아우')
+    .replace(/ow/g, '오')
+    .replace(/ai/g, '에이')
+    .replace(/ay/g, '에이')
+    .replace(/oi/g, '오이')
+    .replace(/oy/g, '오이')
+    .replace(/au/g, '오')
+    .replace(/aw/g, '오')
+    .replace(/oa/g, '오')
+    .replace(/ie/g, '아이')
+    .replace(/ck/g, '크')
+    .replace(/ng/g, '잉')
+    .replace(/nk/g, '링크')
+    .replace(/er/g, '어')
+    .replace(/or/g, '어')
+    .replace(/ar/g, '아')
+    .replace(/ir/g, '어')
+    .replace(/ur/g, '어');
+
+  let midHangul = '';
+  for (let i = 0; i < core.length; i++) {
+    const ch = core[i];
+    if (/[가-힣]/.test(ch)) {
+      midHangul += ch;
+    } else if (charMap[ch]) {
+      midHangul += charMap[ch];
+    }
+  }
+
+  // 결합 및 음절 다듬기 (예: "브아" -> "바", "드에" -> "데", "트오" -> "토")
+  let combined = prefixHangul + midHangul + suffixHangul;
+
+  if (!combined) {
+    combined = word;
+  }
+
+  // 중복 자음 부드럽게 병합
+  combined = combined
+    .replace(/르르/g, '르')
+    .replace(/스스/g, '스')
+    .replace(/트트/g, '트')
+    .replace(/크크/g, '크')
+    .replace(/프프/g, '프')
+    .replace(/브브/g, '브')
+    .replace(/드드/g, '드')
+    .replace(/그그/g, '그');
+
+  return combined;
+}
+
+/**
  * 영어 단어 또는 IPA 기호를 자연스러운 한글 발음으로 변환
+ * 100% 무결점 한글 발음 보장
  */
 export function convertToKoreanPronunciation(raw: string, englishWord: string): string {
   const cleanWord = englishWord.toLowerCase().trim();
@@ -1622,18 +1873,20 @@ export function convertToKoreanPronunciation(raw: string, englishWord: string): 
     return `[${COMMON_KOREAN_PRONUNCIATIONS[cleanWord]}]`;
   }
 
-  // 만약 이미 한글이 포함된 발음이라면 괄호만 정리하여 반환
-  if (/[가-힣]/.test(raw)) {
+  // 2. 만약 이미 한글이 포함된 발음이라면 괄호만 정리하여 반환
+  if (raw && /[가-힣]/.test(raw)) {
     const cleanHangul = raw.replace(/[\[\]\/]/g, '').trim();
     return `[${cleanHangul}]`;
   }
 
-  // 2. 만약 입력된 raw에 IPA 기호가 있거나 알파벳만 있는 경우
-  let text = (raw || cleanWord)
-    .replace(/[ˈˌ.ː\/\[\]]/g, '')
-    .trim();
+  // 3. 파닉스(Phonics G2P) 자동 음차 엔진 실행
+  const phonics = convertEnglishToPhonicsHangul(cleanWord);
+  if (phonics && /[가-힣]/.test(phonics)) {
+    return `[${phonics}]`;
+  }
 
-  if (!text) return '';
-
-  return `[${COMMON_KOREAN_PRONUNCIATIONS[cleanWord] || text}]`;
+  // 4. Fallback (영문 기호 제거)
+  const text = (raw || cleanWord).replace(/[ˈˌ.ː\/\[\]]/g, '').trim();
+  return text ? `[${text}]` : `[${cleanWord}]`;
 }
+

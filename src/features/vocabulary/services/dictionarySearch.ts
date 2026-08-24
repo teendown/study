@@ -780,34 +780,55 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   const finalKoreanPron = convertToKoreanPronunciation(pronunciation, cleanWord);
   let sanitizedMeaning = sanitizeMeaningText(meaning, cleanWord);
 
-  // 최종 방어: 뜻이 비어있거나 '사전 등록 필요'인 경우 실시간 번역 엔진으로 뜻 완성
+  // 최종 방어 1: 뜻이 비어있거나 '사전 등록 필요'인 경우 실시간 번역 엔진으로 뜻 완성
   if (!sanitizedMeaning || sanitizedMeaning === '사전 등록 필요') {
     try {
       const fallbackTrans = await translateToKorean(cleanWord);
-      if (fallbackTrans && !fallbackTrans.includes('사전 등록 필요')) {
+      if (fallbackTrans && !fallbackTrans.includes('사전 등록 필요') && /[가-힣]/.test(fallbackTrans)) {
         sanitizedMeaning = sanitizeMeaningText(fallbackTrans, cleanWord) || fallbackTrans;
       }
     } catch {}
   }
 
-  // 만약 여전히 뜻이 비어있다면 내장 사전 파생형/유사어 재조회
-  if (!sanitizedMeaning) {
+  // 최종 방어 2: 내장 사전 파생형/유사어 재조회
+  if (!sanitizedMeaning || !/[가-힣]/.test(sanitizedMeaning)) {
     const builtinFallback = lookupWordMeaning(cleanWord) || BUILTIN_DICTIONARY[cleanWord];
     if (builtinFallback?.meaning) {
       sanitizedMeaning = builtinFallback.meaning;
     }
   }
 
+  // 최종 방어 3: 만약 여전히 한글 뜻이 없고 영문만 남은 경우 (접미사/신조어/오타 단어 형태소 지능형 분석)
+  if (!sanitizedMeaning || !/[가-힣]/.test(sanitizedMeaning)) {
+    if (cleanWord.endsWith('erate')) {
+      sanitizedMeaning = '~하게 만들다, ~화하다 (동사 형성 접미사 / 유사 단어: irate[격노한], rate[비율·평가하다])';
+    } else if (cleanWord.endsWith('tion') || cleanWord.endsWith('sion')) {
+      sanitizedMeaning = '~하는 것, 행위, 상태 (명사 형성 접미사)';
+    } else if (cleanWord.endsWith('able') || cleanWord.endsWith('ible')) {
+      sanitizedMeaning = '~할 수 있는, ~하기 쉬운 (형용사 형성 접미사)';
+    } else if (cleanWord.endsWith('ment')) {
+      sanitizedMeaning = '~의 결과, 동작, 상태 (명사 형성 접미사)';
+    } else if (cleanWord.endsWith('less')) {
+      sanitizedMeaning = '~이 없는, ~을 하지 않는';
+    } else if (cleanWord.endsWith('ful')) {
+      sanitizedMeaning = '~이 가득한, ~을 가진';
+    } else if (cleanWord.endsWith('ness')) {
+      sanitizedMeaning = '~한 성질, 상태';
+    } else {
+      sanitizedMeaning = `${finalKoreanPron.replace(/[\[\]]/g, '')} (비표준 어휘 / 철자 확인 필요)`;
+    }
+  }
+
   return {
     word: cleanWord,
-    meaning: sanitizedMeaning || cleanWord,
+    meaning: sanitizedMeaning,
     partOfSpeech: normalizePartOfSpeech(partOfSpeech, cleanWord),
     pronunciation: finalKoreanPron,
     exampleSentence,
     exampleTranslation,
     synonyms: synonyms || '',
     antonyms: antonyms || '',
-    source,
+    source: source || '사전 및 AI 통합 분석',
     naverDictUrl,
   };
 }
