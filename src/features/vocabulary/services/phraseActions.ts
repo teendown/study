@@ -6,6 +6,7 @@ import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
 import type { CreatePhraseInput, UpdatePhraseInput, SearchPhraseInput } from '../schemas/phraseSchemas';
 import {
   searchWordOnline,
+  searchPhraseOnline,
   isValidExampleForWord,
   cleanMeaningAndExtractExample,
   type WordSearchResult,
@@ -321,7 +322,7 @@ export async function searchPhraseOnlineAction(
   phrase: string
 ): Promise<ActionResult<WordSearchResult>> {
   try {
-    const result = await searchWordOnline(phrase);
+    const result = await searchPhraseOnline(phrase);
     return { success: true, data: result };
   } catch (err) {
     return { success: false, error: '숙어 검색에 실패했습니다.' };
@@ -344,14 +345,15 @@ export async function autoFillMissingPhrasesAction(): Promise<
       item.meaning.trim() === '' ||
       item.meaning === '의미 미입력' ||
       item.meaning === '의미 검색 필요' ||
-      item.meaning === '뜻 미입력';
+      item.meaning === '뜻 미입력' ||
+      item.meaning.includes('비표준 어휘 / 철자 확인 필요');
 
     if (isMissing) {
       try {
-        const searchRes = await searchWordOnline(item.phrase);
-        if (searchRes && searchRes.meaning && searchRes.meaning !== '의미 검색 필요') {
+        const searchRes = await searchPhraseOnline(item.phrase);
+        if (searchRes && searchRes.meaning && searchRes.meaning !== '의미 검색 필요' && !searchRes.meaning.includes('비표준 어휘')) {
           item.meaning = searchRes.meaning;
-          if (!item.exampleSentence && searchRes.exampleSentence && isValidExampleForWord(searchRes.exampleSentence, item.phrase)) {
+          if (!item.exampleSentence && searchRes.exampleSentence) {
             item.exampleSentence = searchRes.exampleSentence;
             item.exampleTranslation = searchRes.exampleTranslation || item.exampleTranslation;
           }

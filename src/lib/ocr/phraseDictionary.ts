@@ -537,3 +537,27 @@ export function extractEnglishPhrases(rawText: string): ExtractedPhraseResult[] 
   return results.sort((a, b) => b.phrase.length - a.phrase.length);
 }
 
+/**
+ * 단일 숙어 텍스트에 대한 사전 정의 조회 (원형 및 변형 패턴 매칭)
+ */
+export function lookupPhraseMeaning(rawPhrase: string): PhraseDictEntry | null {
+  if (!rawPhrase) return null;
+  const clean = rawPhrase.trim().toLowerCase();
+
+  // 1. 표준 숙어명 직접 일치
+  const direct = COMPREHENSIVE_PHRASE_DICTIONARY.find(
+    (p) => p.phrase.toLowerCase() === clean
+  );
+  if (direct) return direct;
+
+  // 2. 정규식 패턴 매칭 (시제 변형, 수식어 포함 등)
+  for (const entry of COMPREHENSIVE_PHRASE_DICTIONARY) {
+    if (entry.pattern.test(clean)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+
