@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Volume2,
@@ -24,6 +24,7 @@ import type { PassageItem } from '../types/passageTypes';
 import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { extractEnglishWords } from '@/lib/ocr/tokenizer';
 import { extractEnglishPhrases, type ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
+import { searchWordOnline } from '@/features/vocabulary/services/dictionarySearch';
 
 interface PassageDetailProps {
   passage: PassageItem;
@@ -58,6 +59,8 @@ export function PassageDetail({
   const [extractedPhrases, setExtractedPhrases] = useState<ExtractedPhraseResult[]>([]);
   // 추출된 단어 목록 상태
   const [extractedWords, setExtractedWords] = useState<string[]>([]);
+  // 사전에 없는 단어 실시간 인터넷 검색 캐시
+  const [onlineMeaningMap, setOnlineMeaningMap] = useState<Record<string, { meaning: string; pron?: string }>>({});
 
   // 1. 처음에 지문 들어갈 때 자동 분석 실행
   useEffect(() => {
@@ -70,7 +73,39 @@ export function PassageDetail({
     setExtractedWords(wList);
   }, [passage.id, passage.content, passage.vocabularyList]);
 
-  // 2. 수동 재분석 버튼 클릭 핸들러
+  // 2. 사전에 없는 단어 백그라운드 인터넷 자동 검색
+  useEffect(() => {
+    const fetchMissingOnline = async () => {
+      const missingWords = extractedWords.filter((w) => {
+        const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
+        return !dict && !onlineMeaningMap[w];
+      });
+
+      if (missingWords.length === 0) return;
+
+      const BATCH = 5;
+      for (let i = 0; i < missingWords.length; i += BATCH) {
+        const batch = missingWords.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async (word) => {
+            try {
+              const res = await searchWordOnline(word);
+              if (res && res.meaning && res.meaning !== '사전 등록 필요') {
+                setOnlineMeaningMap((prev) => ({
+                  ...prev,
+                  [word]: { meaning: res.meaning, pron: res.pronunciation },
+                }));
+              }
+            } catch {}
+          })
+        );
+      }
+    };
+
+    fetchMissingOnline();
+  }, [extractedWords, onlineMeaningMap]);
+
+  // 3. 수동 재분석 버튼 클릭 핸들러
   const handleManualReanalyze = () => {
     setIsReanalyzing(true);
     setReanalyzeMessage(null);
@@ -147,9 +182,10 @@ export function PassageDetail({
 
     const items = unadded.map((w) => {
       const dict = lookupWordMeaning(w) || BUILTIN_DICTIONARY[w.toLowerCase()];
+      const online = onlineMeaningMap[w];
       return {
         word: w,
-        meaning: dict?.meaning || '사전 등록 필요',
+        meaning: dict?.meaning || online?.meaning || '사전 등록 필요',
       };
     });
 
@@ -427,7 +463,7 @@ export function PassageDetail({
                   지문 핵심 어휘 (총 {extractedWords.length}개 전수 판독)
                 </h4>
                 <p className="text-[11px] text-muted-foreground">
-                  단어 유효성 및 원형 분석을 거친 전체 어휘 목록입니다.
+                  사전 및 실시간 인터넷 검색을 거친 표준 영한 어휘 목록입니다.
                 </p>
               </div>
 
@@ -445,7 +481,9 @@ export function PassageDetail({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
               {extractedWords.map((word) => {
                 const dict = lookupWordMeaning(word) || BUILTIN_DICTIONARY[word.toLowerCase()];
-                const meaning = dict ? dict.meaning : '사전 등록 필요';
+                const online = onlineMeaningMap[word];
+                const meaning = dict ? dict.meaning : (online?.meaning || '사전 검색 중...');
+                const pron = dict?.pron || online?.pron;
                 const isAdded = addedWords.has(word);
 
                 return (
@@ -456,8 +494,8 @@ export function PassageDetail({
                     <div className="space-y-0.5 min-w-0 pr-2">
                       <div className="flex items-center gap-1">
                         <span className="font-bold text-foreground">{word}</span>
-                        {dict?.pron && (
-                          <span className="text-[10px] text-primary/80">{dict.pron}</span>
+                        {pron && (
+                          <span className="text-[10px] text-primary/80">{pron}</span>
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground truncate">{meaning}</p>

@@ -1,7 +1,7 @@
 // ===========================
 // Online Dictionary & Translation Service (Enhanced Multi-Source Engine)
 // ===========================
-// 내장 사전(1순위 즉시 매칭) + 위키낱말사전(Wiktionary CORS 공식 API) + Free Dictionary API + 온라인 번역
+// 내장 사전(1순위) + Wiktionary + Google Translate GTX(초고속 실시간) + MyMemory + Free Dictionary API
 
 import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
 import { convertToKoreanPronunciation } from './koreanPronunciation';
@@ -56,6 +56,58 @@ function cleanText(text: string): string {
     .replace(/<sup>.*?<\/sup>/gi, '')
     .replace(/[│|]/g, '')
     .trim();
+}
+
+/**
+ * 인터넷 한국어 번역 API (1차: Google Translate GTX 초고속 API / 2차: MyMemory)
+ */
+export async function translateToKorean(text: string): Promise<string> {
+  if (!text) return '';
+  const clean = text.trim();
+
+  // 1. Google Translate GTX API (0.05초 초고속 실시간 번역)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q=${encodeURIComponent(clean)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        const transText = data[0]
+          .map((item: unknown) => (Array.isArray(item) ? item[0] : ''))
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (transText && /[가-힣]/.test(transText)) {
+          return cleanText(transText);
+        }
+      }
+    }
+  } catch {}
+
+  // 2. MyMemory Translation API
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const transRes = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=en|ko`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (transRes.ok) {
+      const transData = await transRes.json();
+      const translated = transData.responseData?.translatedText;
+      if (translated && !translated.startsWith('MYMEMORY WARNING') && /[가-힣]/.test(translated)) {
+        return cleanText(translated);
+      }
+    }
+  } catch {}
+
+  return '';
 }
 
 /**
@@ -224,30 +276,6 @@ async function fetchFreeDictionary(cleanWord: string) {
 }
 
 /**
- * 한국어 번역 API (MyMemory 번역기)
- */
-async function translateToKorean(text: string): Promise<string> {
-  if (!text) return '';
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const transRes = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|ko`,
-      { signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
-    if (transRes.ok) {
-      const transData = await transRes.json();
-      const translated = transData.responseData?.translatedText;
-      if (translated && !translated.startsWith('MYMEMORY WARNING')) {
-        return cleanText(translated);
-      }
-    }
-  } catch {}
-  return '';
-}
-
-/**
  * 영단어/숙어의 뜻, 품사, 발음, 예문 등을 실시간으로 다단계 자동 검색합니다.
  */
 export async function searchWordOnline(word: string): Promise<WordSearchResult> {
@@ -268,7 +296,7 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
       exampleTranslation: builtin.exTrans || '',
       synonyms: builtin.syn || '',
       antonyms: builtin.ant || '',
-      source: '표준 필수 영한사전',
+      source: '표준 영한사전',
     };
   }
 
@@ -279,7 +307,7 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
   let exampleTranslation = '';
   let synonyms = '';
   let antonyms = '';
-  let source = '온라인 사전';
+  let source = '인터넷 영한사전';
 
   // 2. 2순위: 위키낱말사전 (Wiktionary CORS 공식 API)
   try {
@@ -296,7 +324,16 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     console.warn('Wiktionary search failed:', err);
   }
 
-  // 3. 3순위: Free Dictionary API로 발음, 품사, 예문, 유의어 보충
+  // 3. 3순위: 인터넷 실시간 고속 번역 엔진
+  if (!meaning) {
+    const transMeaning = await translateToKorean(cleanWord);
+    if (transMeaning) {
+      meaning = transMeaning;
+      source = '인터넷 실시간 검색';
+    }
+  }
+
+  // 4. 4순위: Free Dictionary API로 발음, 품사, 예문, 유의어 보충
   try {
     const freeDict = await fetchFreeDictionary(cleanWord);
     if (freeDict) {
@@ -308,15 +345,6 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
     }
   } catch (err) {
     console.warn('Free Dictionary search failed:', err);
-  }
-
-  // 4. 4순위: 여전히 한국어 뜻이 없는 경우 번역 API 호출
-  if (!meaning) {
-    const transMeaning = await translateToKorean(cleanWord);
-    if (transMeaning) {
-      meaning = transMeaning;
-      source = '온라인 번역';
-    }
   }
 
   // 5. 예문이 있는데 예문 해석이 없는 경우 자동 번역
@@ -331,7 +359,7 @@ export async function searchWordOnline(word: string): Promise<WordSearchResult> 
 
   return {
     word: cleanWord,
-    meaning: meaning || '의미 검색 필요',
+    meaning: meaning || '사전 등록 필요',
     partOfSpeech,
     pronunciation: finalKoreanPron,
     exampleSentence,
