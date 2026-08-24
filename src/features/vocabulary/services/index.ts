@@ -219,13 +219,14 @@ export async function getVocabularyByIdAction(
  * 단어 등록 (Turso Cloud DB + 로컬 캐시)
  */
 export async function addVocabularyAction(
-  input: CreateVocabularyInput
+  input: CreateVocabularyInput,
+  allowDuplicate = false
 ): Promise<ActionResult<VocabularyWithItem>> {
   const all = getStoredVocabs();
   const isDuplicate = all.some(
     (v) => v.word.toLowerCase() === input.word.toLowerCase().trim()
   );
-  if (isDuplicate) {
+  if (!allowDuplicate && isDuplicate) {
     return { success: false, error: `"${input.word}"은(는) 이미 등록된 단어입니다.` };
   }
 

@@ -147,27 +147,25 @@ export default function VocabularyPage() {
   };
 
   // 단어 CRUD 핸들러
-  const handleVocabFormSubmit = async (input: CreateVocabularyInput) => {
+  const handleVocabFormSubmit = async (input: CreateVocabularyInput, allowDuplicate = false) => {
     if (vocabFormMode === 'create') {
-      try {
-        const res = await addVocabularyAction(input);
-        if (res.success) {
-          setIsVocabFormOpen(false);
-          loadVocabularies();
-        } else {
-          alert(res.error);
-        }
-      } catch (e) {
-        alert(e instanceof Error ? e.message : '단어 등록 실패');
+      const res = await addVocabularyAction(input, allowDuplicate);
+      if (res.success) {
+        setIsVocabFormOpen(false);
+        await loadVocabularies();
+      } else {
+        throw new Error(res.error || '단어 추가 실패');
       }
     } else if (vocabFormMode === 'edit' && selectedVocab) {
-      try {
-        await updateVocabularyAction(selectedVocab.id, input);
+      const res = await updateVocabularyAction(selectedVocab.id, input);
+      if (res.success) {
         const updated = { ...selectedVocab, ...input, updatedAt: new Date().toISOString() } as VocabularyWithItem;
         setSelectedVocab(updated);
         setIsVocabFormOpen(false);
-        loadVocabularies();
-      } catch {}
+        await loadVocabularies();
+      } else {
+        throw new Error(res.error || '단어 수정 실패');
+      }
     }
   };
 
@@ -186,18 +184,16 @@ export default function VocabularyPage() {
   };
 
   // 단어 일괄 삭제
-  const handleBatchVocabDelete = async (ids: string[]) => {
-    if (!confirm(`선택한 ${ids.length}개의 단어를 모두 삭제하시겠습니까?`)) return;
+  const handleBatchDeleteVocabs = async (ids: string[]) => {
+    if (!confirm(`선택한 ${ids.length}개의 단어를 삭제하시겠습니까?`)) return;
     try {
-      const res = await batchDeleteVocabulariesAction(ids);
-      if (res.success) {
-        loadVocabularies();
-        if (selectedVocab && ids.includes(selectedVocab.id)) {
-          setSelectedVocab(null);
-        }
+      await batchDeleteVocabulariesAction(ids);
+      loadVocabularies();
+      if (selectedVocab && ids.includes(selectedVocab.id)) {
+        setSelectedVocab(null);
       }
     } catch {
-      alert('일괄 삭제 중 오류가 발생했습니다.');
+      alert('단어 일괄 삭제에 실패했습니다.');
     }
   };
 
@@ -223,27 +219,25 @@ export default function VocabularyPage() {
   };
 
   // 숙어 CRUD 핸들러
-  const handlePhraseFormSubmit = async (input: CreatePhraseInput) => {
+  const handlePhraseFormSubmit = async (input: CreatePhraseInput, allowDuplicate = false) => {
     if (phraseFormMode === 'create') {
-      try {
-        const res = await addPhraseAction(input);
-        if (res.success) {
-          setIsPhraseFormOpen(false);
-          loadPhrases();
-        } else {
-          alert(res.error);
-        }
-      } catch (e) {
-        alert(e instanceof Error ? e.message : '숙어 등록 실패');
+      const res = await addPhraseAction(input, allowDuplicate);
+      if (res.success) {
+        setIsPhraseFormOpen(false);
+        await loadPhrases();
+      } else {
+        throw new Error(res.error || '숙어 추가 실패');
       }
     } else if (phraseFormMode === 'edit' && selectedPhrase) {
-      try {
-        await updatePhraseAction(selectedPhrase.id, input);
+      const res = await updatePhraseAction(selectedPhrase.id, input);
+      if (res.success) {
         const updated = { ...selectedPhrase, ...input, updatedAt: new Date().toISOString() } as PhraseWithItem;
         setSelectedPhrase(updated);
         setIsPhraseFormOpen(false);
-        loadPhrases();
-      } catch {}
+        await loadPhrases();
+      } else {
+        throw new Error(res.error || '숙어 수정 실패');
+      }
     }
   };
 
@@ -393,7 +387,7 @@ export default function VocabularyPage() {
               onItemClick={(v) => setSelectedVocab(v)}
               onSearch={(q) => loadVocabularies(q)}
               onDeleteClick={handleVocabDelete}
-              onBatchDelete={handleBatchVocabDelete}
+              onBatchDelete={handleBatchDeleteVocabs}
               onAutoFillMissing={handleAutoFillMissingVocabs}
               isAutoFilling={isVocabAutoFilling}
               isLoading={isVocabLoading}

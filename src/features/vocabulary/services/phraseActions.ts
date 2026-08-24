@@ -154,9 +154,16 @@ export async function getPhrasesAction(
  * 숙어 등록
  */
 export async function addPhraseAction(
-  input: CreatePhraseInput
+  input: CreatePhraseInput,
+  allowDuplicate = false
 ): Promise<ActionResult<PhraseWithItem>> {
   const all = getStoredPhrases();
+  const isDuplicate = all.some(
+    (p) => p.phrase.toLowerCase() === input.phrase.toLowerCase().trim()
+  );
+  if (!allowDuplicate && isDuplicate) {
+    return { success: false, error: `"${input.phrase}"은(는) 이미 등록된 숙어입니다.` };
+  }
 
   let finalMeaning = input.meaning.trim();
   let finalEx = input.exampleSentence || null;
