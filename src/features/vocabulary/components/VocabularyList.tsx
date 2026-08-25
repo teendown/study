@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import {
   Plus,
+  ListPlus,
   Search,
   BookOpen,
   Loader2,
@@ -37,6 +38,7 @@ import Link from 'next/link';
 interface VocabularyListProps {
   initialData: VocabularyListResult | null;
   onAddClick: () => void;
+  onBatchAddClick?: () => void;
   onItemClick: (vocab: VocabularyWithItem) => void;
   onSearch: (query: string) => void;
   onDeleteClick?: (id: string) => void;
@@ -79,6 +81,7 @@ function getDateLabel(dateKey: string): string {
 export function VocabularyList({
   initialData,
   onAddClick,
+  onBatchAddClick,
   onItemClick,
   onSearch,
   onDeleteClick,
@@ -314,9 +317,24 @@ export function VocabularyList({
             </Button>
           </div>
 
+          {onBatchAddClick && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onBatchAddClick}
+              className="h-9.5 gap-1.5 font-bold shadow-xs border-primary/30 text-primary hover:bg-primary/10"
+              title="여러 단어를 텍스트로 한 번에 입력하고 자동 등록"
+            >
+              <ListPlus className="h-4 w-4" />
+              <span className="hidden sm:inline">다중 단어 입력</span>
+              <span className="sm:hidden">다중 입력</span>
+            </Button>
+          )}
+
           <Button onClick={onAddClick} className="h-9.5 gap-1.5 font-bold shadow-xs">
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">단어 추가</span>
+            <span className="sm:hidden">추가</span>
           </Button>
         </div>
       </div>

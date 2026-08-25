@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   VocabularyList,
   VocabularyFormDialog,
+  BatchVocabularyDialog,
   VocabularyDetail,
   VocabularyPreviewDialog,
   PhraseList,
@@ -76,6 +77,7 @@ export default function VocabularyPage() {
   const [selectedVocab, setSelectedVocab] = useState<VocabularyWithItem | null>(null);
   const [isVocabPreviewOpen, setIsVocabPreviewOpen] = useState(false);
   const [isVocabFormOpen, setIsVocabFormOpen] = useState(false);
+  const [isBatchVocabOpen, setIsBatchVocabOpen] = useState(false);
   const [vocabFormMode, setVocabFormMode] = useState<'create' | 'edit'>('create');
   const [vocabEditData, setVocabEditData] = useState<Partial<CreateVocabularyInput> | undefined>();
 
@@ -599,6 +601,9 @@ export default function VocabularyPage() {
               setVocabEditData(undefined);
               setIsVocabFormOpen(true);
             }}
+            onBatchAddClick={() => {
+              setIsBatchVocabOpen(true);
+            }}
             onItemClick={(v) => {
               setSelectedVocab(v);
               setIsVocabPreviewOpen(true);
@@ -640,13 +645,28 @@ export default function VocabularyPage() {
             }}
           />
 
-          {/* 📝 단어 등록 / 수정 폼 모달 */}
+          {/* 📝 단어 단일 등록 / 수정 폼 모달 */}
           <VocabularyFormDialog
             open={isVocabFormOpen}
             onOpenChange={setIsVocabFormOpen}
             onSubmit={handleVocabFormSubmit}
             initialData={vocabEditData}
             mode={vocabFormMode}
+            onSwitchToBatch={() => setIsBatchVocabOpen(true)}
+          />
+
+          {/* 📚 다중 단어 일괄 입력 모달 */}
+          <BatchVocabularyDialog
+            open={isBatchVocabOpen}
+            onOpenChange={setIsBatchVocabOpen}
+            onSuccess={() => {
+              loadVocabularies();
+            }}
+            onSwitchToSingle={() => {
+              setVocabFormMode('create');
+              setVocabEditData(undefined);
+              setIsVocabFormOpen(true);
+            }}
           />
         </>
       )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Loader2, Sparkles, CheckCircle2, ListPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +35,7 @@ interface VocabularyFormDialogProps {
   onSubmit: (data: CreateVocabularyInput, allowDuplicate?: boolean) => Promise<void>;
   initialData?: Partial<CreateVocabularyInput>;
   mode?: 'create' | 'edit';
+  onSwitchToBatch?: () => void;
 }
 
 export function VocabularyFormDialog({
@@ -43,6 +44,7 @@ export function VocabularyFormDialog({
   onSubmit,
   initialData,
   mode = 'create',
+  onSwitchToBatch,
 }: VocabularyFormDialogProps) {
   // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
   useBackHandler(open, () => onOpenChange(false), 'vocab_form');
@@ -319,9 +321,26 @@ export function VocabularyFormDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {mode === 'create' ? '새 단어 추가' : '단어 수정'}
-            </DialogTitle>
+            <div className="flex items-center justify-between gap-2 pr-6">
+              <DialogTitle>
+                {mode === 'create' ? '새 단어 추가' : '단어 수정'}
+              </DialogTitle>
+              {mode === 'create' && onSwitchToBatch && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 border-primary/30 text-primary font-bold hover:bg-primary/10"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onSwitchToBatch();
+                  }}
+                >
+                  <ListPlus className="h-3.5 w-3.5" />
+                  <span>다중 일괄 입력</span>
+                </Button>
+              )}
+            </div>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="50%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#9333ea"/>
+    </linearGradient>
+    <linearGradient id="sparkle" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M120 180 C120 160, 140 140, 180 140 L332 140 C372 140, 392 160, 392 180 L392 340 C392 360, 372 380, 332 380 L180 380 C140 380, 120 360, 120 340 Z" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" opacity="0.9"/>
+  <!-- 책 아이콘 & 반짝임 -->
+  <path d="M256 180 L256 360" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.8"/>
+  <path d="M160 220 Q208 200 256 210 Q304 200 352 220" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+  <path d="M160 270 Q208 250 256 260 Q304 250 352 270" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+  <path d="M160 320 Q208 300 256 310 Q304 300 352 320" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+  <!-- 별빛 / 반짝임 아이콘 -->
+  <path d="M380 120 L390 145 L415 155 L390 165 L380 190 L370 165 L345 155 L370 145 Z" fill="url(#sparkle)"/>
+  <path d="M130 330 L136 345 L151 351 L136 357 L130 372 L124 357 L109 351 L124 345 Z" fill="url(#sparkle)"/>
+</svg>

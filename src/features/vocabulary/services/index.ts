@@ -315,6 +315,158 @@ export async function addVocabularyAction(
   return { success: true, data: newItem };
 }
 
+export interface BatchAddVocabItem {
+  word: string;
+  meaning?: string;
+  partOfSpeech?: string;
+  pronunciation?: string;
+  exampleSentence?: string;
+  exampleTranslation?: string;
+  synonyms?: string;
+  antonyms?: string;
+  difficulty?: number;
+  grade?: number;
+  source?: string;
+}
+
+export interface BatchAddVocabOptions {
+  duplicatePolicy?: 'skip' | 'overwrite' | 'allow';
+  defaultDifficulty?: number;
+  defaultSource?: string;
+}
+
+/**
+ * 다중 단어 일괄 등록 (Multi-word bulk addition)
+ */
+export async function batchAddVocabulariesAction(
+  items: BatchAddVocabItem[],
+  options?: BatchAddVocabOptions
+): Promise<ActionResult<{ addedCount: number; updatedCount: number; skippedCount: number; totalProcessed: number }>> {
+  if (!items || items.length === 0) {
+    return { success: true, data: { addedCount: 0, updatedCount: 0, skippedCount: 0, totalProcessed: 0 } };
+  }
+
+  const all = getStoredVocabs();
+  const policy = options?.duplicatePolicy || 'skip';
+  let addedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  for (const item of items) {
+    const targetWord = item.word.trim();
+    if (!targetWord) continue;
+
+    const existingIdx = all.findIndex(
+      (v) => v.word.toLowerCase() === targetWord.toLowerCase()
+    );
+
+    if (existingIdx !== -1) {
+      if (policy === 'skip') {
+        skippedCount++;
+        continue;
+      } else if (policy === 'overwrite') {
+        // 기존 단어 업데이트
+        const existing = all[existingIdx];
+        const rawMeaning = item.meaning && item.meaning !== '의미 검색 필요' ? item.meaning : existing.meaning;
+        const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+          cleanMeaningAndExtractExample(
+            rawMeaning,
+            targetWord,
+            item.exampleSentence || existing.exampleSentence || undefined,
+            item.exampleTranslation || existing.exampleTranslation || undefined
+          );
+
+        const updated: VocabularyWithItem = {
+          ...existing,
+          word: targetWord,
+          meaning: cleanMeaning || existing.meaning,
+          partOfSpeech: item.partOfSpeech || existing.partOfSpeech,
+          pronunciation: item.pronunciation || existing.pronunciation,
+          exampleSentence: parsedEx || existing.exampleSentence,
+          exampleTranslation: parsedEx ? (parsedExTrans || existing.exampleTranslation) : existing.exampleTranslation,
+          synonyms: item.synonyms || existing.synonyms,
+          antonyms: item.antonyms || existing.antonyms,
+          difficulty: item.difficulty ?? existing.difficulty,
+          grade: item.grade ?? existing.grade,
+          source: item.source || existing.source || options?.defaultSource || '다중 단어 등록',
+          updatedAt: new Date().toISOString(),
+        };
+
+        all[existingIdx] = updated;
+        updatedCount++;
+
+        // Turso DB 동기화
+        updateVocabularyInTurso(updated.id, {
+          word: updated.word,
+          meaning: updated.meaning,
+          partOfSpeech: updated.partOfSpeech ?? undefined,
+          pronunciation: updated.pronunciation ?? undefined,
+          exampleSentence: updated.exampleSentence ?? undefined,
+          exampleTranslation: updated.exampleTranslation ?? undefined,
+          synonyms: updated.synonyms ?? undefined,
+          antonyms: updated.antonyms ?? undefined,
+        }).catch((err) => {
+          console.warn('Background Turso sync failed for overwrite in batch:', err);
+        });
+        continue;
+      }
+      // If policy === 'allow', proceed to add as new below
+    }
+
+    // 신규 단어 생성
+    const { meaning: cleanMeaning, exampleSentence: parsedEx, exampleTranslation: parsedExTrans } =
+      cleanMeaningAndExtractExample(
+        item.meaning || '',
+        targetWord,
+        item.exampleSentence,
+        item.exampleTranslation
+      );
+
+    const finalEx = parsedEx && isValidExampleForWord(parsedEx, targetWord) ? parsedEx.trim() : null;
+    const finalExTrans = finalEx ? (parsedExTrans?.trim() || null) : null;
+
+    const newItem: VocabularyWithItem = {
+      id: `vocab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      word: targetWord,
+      meaning: cleanMeaning || item.meaning || '의미 검색 필요',
+      partOfSpeech: item.partOfSpeech || null,
+      pronunciation: item.pronunciation || null,
+      audioUrl: null,
+      exampleSentence: finalEx,
+      exampleTranslation: finalExTrans,
+      synonyms: item.synonyms || null,
+      antonyms: item.antonyms || null,
+      frequency: 'high',
+      difficulty: item.difficulty ?? options?.defaultDifficulty ?? 2,
+      grade: item.grade ?? 10,
+      source: item.source || options?.defaultSource || '다중 단어 등록',
+      learningItemId: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    all.unshift(newItem);
+    addedCount++;
+
+    // Turso DB 동기화
+    addVocabularyToTurso(newItem).catch((err) => {
+      console.warn('Background Turso sync failed for add in batch:', err);
+    });
+  }
+
+  saveStoredVocabs(all);
+
+  return {
+    success: true,
+    data: {
+      addedCount,
+      updatedCount,
+      skippedCount,
+      totalProcessed: items.length,
+    },
+  };
+}
+
 /**
  * 단어 수정
  */
