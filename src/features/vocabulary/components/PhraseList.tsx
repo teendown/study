@@ -22,6 +22,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   AlertTriangle,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -183,6 +184,13 @@ export function PhraseList({
     }
     setSelectedIds(next);
   };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const isAllCurrentPageSelected =
+    pagedItems.length > 0 && pagedItems.every((item) => selectedIds.has(item.id));
 
   const handleDeleteItem = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -371,7 +379,7 @@ export function PhraseList({
       </div>
 
       {/* ────────────────────────────────────
-          3. 상태 바
+          3. 상태 바 (선택 해제 버튼 포함)
          ──────────────────────────────────── */}
       <div className="flex items-center justify-between text-xs text-muted-foreground px-1 flex-wrap gap-2">
         <p>
@@ -380,32 +388,45 @@ export function PhraseList({
           {pageSize < 9999 && ` (페이지 ${currentPage} / ${totalPages})`}
         </p>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           {issuesCount > 0 && (
             <button
               onClick={selectAllIssues}
-              className="text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md"
+              className="text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1 bg-amber-500/10 px-2.5 py-1 rounded-md transition-colors"
             >
               <AlertTriangle className="h-3 w-3 text-amber-600" />
-              오류 {issuesCount}개 일괄 선택
+              오류 {issuesCount}개 선택
+            </button>
+          )}
+
+          {/* ⚡ 선택 취소 (선택 해제) 버튼 */}
+          {selectedIds.size > 0 && (
+            <button
+              onClick={deselectAll}
+              className="text-xs font-bold text-muted-foreground hover:text-foreground flex items-center gap-1 bg-muted hover:bg-muted/80 px-2.5 py-1 rounded-md transition-colors border border-border"
+              title="선택된 모든 숙어 선택 해제"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              선택 해제 ({selectedIds.size}개)
             </button>
           )}
 
           {selectedIds.size > 0 && onBatchDelete && (
             <button
               onClick={handleBatchDeleteClick}
-              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-md"
+              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1 bg-destructive/10 hover:bg-destructive/20 px-2.5 py-1 rounded-md transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
               선택 {selectedIds.size}개 삭제
             </button>
           )}
+
           {pagedItems.length > 0 && (
             <button
               onClick={selectAllCurrentPage}
-              className="text-xs font-semibold text-primary hover:underline"
+              className="text-xs font-semibold text-primary hover:underline px-1 py-1"
             >
-              현재 페이지 전체 선택
+              {isAllCurrentPageSelected ? '현재 페이지 선택 취소' : '현재 페이지 전체 선택'}
             </button>
           )}
         </div>
@@ -749,7 +770,16 @@ export function PhraseList({
               </span>
             </div>
 
-            <div className="flex gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="font-bold text-xs gap-1 text-white hover:bg-white/10"
+                onClick={deselectAll}
+                title="선택 해제"
+              >
+                <XCircle className="h-3.5 w-3.5" /> 선택 취소
+              </Button>
               {onBatchDelete && (
                 <Button
                   size="sm"

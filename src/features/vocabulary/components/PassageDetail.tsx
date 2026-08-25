@@ -37,6 +37,14 @@ import { findSentenceInPassage } from '@/lib/ocr/textCleaner';
 import { TabletPenCanvas } from './TabletPenCanvas';
 import { PenSelectionPopover } from './PenSelectionPopover';
 import { PassageStudyDialog } from './PassageStudyDialog';
+import { VocabularyPreviewDialog } from './VocabularyPreviewDialog';
+import { PhrasePreviewDialog } from './PhrasePreviewDialog';
+import { VocabularyFormDialog } from './VocabularyFormDialog';
+import { PhraseFormDialog } from './PhraseFormDialog';
+import type { VocabularyWithItem } from '../types';
+import type { PhraseWithItem } from '../types/phraseTypes';
+import { deleteVocabularyAction, updateVocabularyAction, addVocabularyAction } from '../services';
+import { deletePhraseAction, updatePhraseAction, addPhraseAction } from '../services/phraseActions';
 
 export interface PassageWordItem {
   word: string;
@@ -83,6 +91,17 @@ export function PassageDetail({
   const [addedPhrases, setAddedPhrases] = useState<Set<string>>(new Set());
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+
+  // 🔍 단어 / 숙어 빠른 미리보기 팝업 상태
+  const [previewVocab, setPreviewVocab] = useState<VocabularyWithItem | null>(null);
+  const [isPreviewVocabOpen, setIsPreviewVocabOpen] = useState(false);
+  const [vocabFormOpen, setVocabFormOpen] = useState(false);
+  const [vocabFormData, setVocabFormData] = useState<Partial<VocabularyWithItem> | undefined>();
+
+  const [previewPhrase, setPreviewPhrase] = useState<PhraseWithItem | null>(null);
+  const [isPreviewPhraseOpen, setIsPreviewPhraseOpen] = useState(false);
+  const [phraseFormOpen, setPhraseFormOpen] = useState(false);
+  const [phraseFormData, setPhraseFormData] = useState<Partial<PhraseWithItem> | undefined>();
 
   // 펜슬 선택 팝업 상태
   const [selectionPopover, setSelectionPopover] = useState<{
@@ -315,6 +334,68 @@ export function PassageDetail({
   const wordCount = useMemo(() => {
     return passage.content.trim().split(/\s+/).filter(Boolean).length;
   }, [passage.content]);
+
+  // 🔍 단어 미리보기 열기 핸들러
+  const handleOpenWordPreview = (word: string, fallbackMeaning: string) => {
+    try {
+      const stored = getStoredVocabs();
+      const existing = stored.find((v) => v.word.toLowerCase() === word.toLowerCase());
+      const sentence = findSentenceInPassage(passage.content, passage.sentences, word);
+      if (existing) {
+        setPreviewVocab(existing);
+      } else {
+        const tempVocab: VocabularyWithItem = {
+          id: `temp-${word}`,
+          word,
+          meaning: fallbackMeaning && fallbackMeaning !== '의미 검색 중...' ? fallbackMeaning : '',
+          partOfSpeech: null,
+          pronunciation: null,
+          audioUrl: null,
+          exampleSentence: sentence || null,
+          exampleTranslation: null,
+          synonyms: null,
+          antonyms: null,
+          frequency: null,
+          difficulty: 2,
+          grade: passage.grade || null,
+          source: `${passage.title} 어휘`,
+          learningItemId: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setPreviewVocab(tempVocab);
+      }
+      setIsPreviewVocabOpen(true);
+    } catch {}
+  };
+
+  // 🔍 숙어 미리보기 열기 핸들러
+  const handleOpenPhrasePreview = (phraseText: string, fallbackMeaning: string) => {
+    try {
+      const stored = getStoredPhrases();
+      const existing = stored.find((p) => p.phrase.toLowerCase() === phraseText.toLowerCase());
+      const sentence = findSentenceInPassage(passage.content, passage.sentences, phraseText);
+      if (existing) {
+        setPreviewPhrase(existing);
+      } else {
+        const tempPhrase: PhraseWithItem = {
+          id: `temp-${phraseText}`,
+          phrase: phraseText,
+          meaning: fallbackMeaning && fallbackMeaning !== '의미 검색 중...' ? fallbackMeaning : '',
+          exampleSentence: sentence || null,
+          exampleTranslation: null,
+          difficulty: 2,
+          grade: passage.grade || null,
+          source: `${passage.title} 숙어`,
+          learningItemId: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setPreviewPhrase(tempPhrase);
+      }
+      setIsPreviewPhraseOpen(true);
+    } catch {}
+  };
 
   return (
     <div
@@ -583,6 +664,7 @@ export function PassageDetail({
         </div>
       )}
 
+      {/* 지문 핵심 숙어 목록 (클릭 시 빠른 미리보기 팝업 연동) */}
       <Card className="bg-card/90 backdrop-blur-xs border-indigo-500/30 shadow-xs mt-6">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -591,6 +673,9 @@ export function PassageDetail({
                 <BookmarkPlus className="h-4 w-4 text-indigo-500" />
                 지문 핵심 숙어 및 연어 ({extractedPhrases.length}개 자동 판독)
               </h4>
+              <p className="text-[11px] text-muted-foreground">
+                숙어를 클릭하면 상세 미리보기 및 수정/삭제가 가능합니다.
+              </p>
             </div>
 
             {extractedPhrases.length > 0 && (
@@ -612,11 +697,13 @@ export function PassageDetail({
               return (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background/80 hover:border-indigo-500/40 transition-colors gap-2"
+                  onClick={() => handleOpenPhrasePreview(item.phrase, item.meaning)}
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/80 bg-background/80 hover:border-indigo-500/60 hover:bg-indigo-500/5 transition-all gap-2 cursor-pointer group"
+                  title="클릭하여 숙어 미리보기"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate">
+                      <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 truncate group-hover:underline">
                         {item.phrase}
                       </span>
                       <Button
@@ -624,7 +711,10 @@ export function PassageDetail({
                         size="icon"
                         variant="ghost"
                         className="h-4 w-4 text-muted-foreground hover:text-indigo-500 shrink-0"
-                        onClick={() => handleSpeak(item.phrase)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSpeak(item.phrase);
+                        }}
                       >
                         <Volume2 className="h-3 w-3" />
                       </Button>
@@ -636,7 +726,10 @@ export function PassageDetail({
                     size="icon"
                     variant={isSaved ? 'secondary' : 'ghost'}
                     disabled={isSaved}
-                    onClick={() => handleAddSinglePhrase(item.phrase, item.meaning, item.exampleSentence, item.exampleTranslation)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddSinglePhrase(item.phrase, item.meaning, item.exampleSentence, item.exampleTranslation);
+                    }}
                     className="h-7 w-7 shrink-0"
                   >
                     {isSaved ? (
@@ -652,6 +745,7 @@ export function PassageDetail({
         </CardContent>
       </Card>
 
+      {/* 지문 어휘 목록 (클릭 시 빠른 미리보기 팝업 연동) */}
       <Card className="bg-card/90 backdrop-blur-xs border-primary/20 shadow-xs">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -661,7 +755,7 @@ export function PassageDetail({
                 지문 어휘 목록 ({extractedWords.length}개 추출)
               </h4>
               <p className="text-[11px] text-muted-foreground">
-                지문 속 모든 영어 단어의 뜻과 발음을 확인할 수 있습니다.
+                단어를 클릭하면 상세 미리보기 팝업에서 뜻, 발음, 예문 확인 및 수정/삭제가 가능합니다.
               </p>
             </div>
 
@@ -688,17 +782,24 @@ export function PassageDetail({
               return (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-2 rounded-lg border border-border/80 bg-background/80 hover:border-primary/40 transition-colors gap-1.5"
+                  onClick={() => handleOpenWordPreview(word, meaning)}
+                  className="flex items-center justify-between p-2 rounded-lg border border-border/80 bg-background/80 hover:border-primary/60 hover:bg-primary/5 transition-all gap-1.5 cursor-pointer group"
+                  title="클릭하여 단어 미리보기"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
-                      <span className="font-bold text-xs text-foreground truncate">{word}</span>
+                      <span className="font-bold text-xs text-foreground truncate group-hover:text-primary group-hover:underline">
+                        {word}
+                      </span>
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
                         className="h-4 w-4 text-muted-foreground hover:text-primary shrink-0"
-                        onClick={() => handleSpeak(word)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSpeak(word);
+                        }}
                       >
                         <Volume2 className="h-3 w-3" />
                       </Button>
@@ -710,7 +811,10 @@ export function PassageDetail({
                     size="icon"
                     variant={isSaved ? 'secondary' : 'ghost'}
                     disabled={isSaved}
-                    onClick={() => handleAddSingleWord(word, meaning)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddSingleWord(word, meaning);
+                    }}
                     className="h-6 w-6 shrink-0"
                     title={isSaved ? '이미 등록됨' : '단어장에 추가'}
                   >
@@ -726,6 +830,118 @@ export function PassageDetail({
           </div>
         </CardContent>
       </Card>
+
+      {/* 🔍 단어 클릭 시 빠른 미리보기 팝업 (수정, 삭제, 발음, 자동완성 지원) */}
+      <VocabularyPreviewDialog
+        vocab={previewVocab}
+        open={isPreviewVocabOpen}
+        onOpenChange={setIsPreviewVocabOpen}
+        onEdit={(v) => {
+          setVocabFormData(v);
+          setVocabFormOpen(true);
+        }}
+        onDelete={async (id) => {
+          if (id.startsWith('temp-')) {
+            setIsPreviewVocabOpen(false);
+            return;
+          }
+          if (confirm('이 단어를 삭제하시겠습니까?')) {
+            await deleteVocabularyAction(id);
+            setAddedWords((prev) => {
+              const next = new Set(prev);
+              if (previewVocab) next.delete(previewVocab.word.toLowerCase());
+              return next;
+            });
+            setIsPreviewVocabOpen(false);
+          }
+        }}
+        onVocabUpdated={(updated) => {
+          setPreviewVocab(updated);
+        }}
+      />
+
+      {/* 📝 단어 수정 / 등록 폼 */}
+      <VocabularyFormDialog
+        open={vocabFormOpen}
+        onOpenChange={setVocabFormOpen}
+        initialData={vocabFormData ? {
+          word: vocabFormData.word,
+          meaning: vocabFormData.meaning,
+          partOfSpeech: vocabFormData.partOfSpeech || '',
+          pronunciation: vocabFormData.pronunciation || '',
+          exampleSentence: vocabFormData.exampleSentence || '',
+          exampleTranslation: vocabFormData.exampleTranslation || '',
+          synonyms: vocabFormData.synonyms || '',
+          antonyms: vocabFormData.antonyms || '',
+          difficulty: vocabFormData.difficulty || 2,
+          source: vocabFormData.source || `${passage.title} 어휘`,
+        } : undefined}
+        mode={vocabFormData?.id && !vocabFormData.id.startsWith('temp-') ? 'edit' : 'create'}
+        onSubmit={async (data) => {
+          if (vocabFormData?.id && !vocabFormData.id.startsWith('temp-')) {
+            await updateVocabularyAction(vocabFormData.id, data);
+          } else {
+            await addVocabularyAction(data, true);
+          }
+          setAddedWords((prev) => new Set([...prev, data.word.toLowerCase()]));
+          setVocabFormOpen(false);
+          setIsPreviewVocabOpen(false);
+        }}
+      />
+
+      {/* 🔍 숙어 클릭 시 빠른 미리보기 팝업 */}
+      <PhrasePreviewDialog
+        phrase={previewPhrase}
+        open={isPreviewPhraseOpen}
+        onOpenChange={setIsPreviewPhraseOpen}
+        onEdit={(p) => {
+          setPhraseFormData(p);
+          setPhraseFormOpen(true);
+        }}
+        onDelete={async (id) => {
+          if (id.startsWith('temp-')) {
+            setIsPreviewPhraseOpen(false);
+            return;
+          }
+          if (confirm('이 숙어를 삭제하시겠습니까?')) {
+            await deletePhraseAction(id);
+            setAddedPhrases((prev) => {
+              const next = new Set(prev);
+              if (previewPhrase) next.delete(previewPhrase.phrase.toLowerCase());
+              return next;
+            });
+            setIsPreviewPhraseOpen(false);
+          }
+        }}
+        onPhraseUpdated={(updated) => {
+          setPreviewPhrase(updated);
+        }}
+      />
+
+      {/* 📝 숙어 수정 / 등록 폼 */}
+      <PhraseFormDialog
+        open={phraseFormOpen}
+        onOpenChange={setPhraseFormOpen}
+        initialData={phraseFormData ? {
+          phrase: phraseFormData.phrase,
+          meaning: phraseFormData.meaning,
+          exampleSentence: phraseFormData.exampleSentence || '',
+          exampleTranslation: phraseFormData.exampleTranslation || '',
+          difficulty: phraseFormData.difficulty || 2,
+          source: phraseFormData.source || `${passage.title} 숙어`,
+        } : undefined}
+        mode={phraseFormData?.id && !phraseFormData.id.startsWith('temp-') ? 'edit' : 'create'}
+        onSubmit={async (data) => {
+          if (phraseFormData?.id && !phraseFormData.id.startsWith('temp-')) {
+            await updatePhraseAction(phraseFormData.id, data);
+          } else {
+            await addPhraseAction(data, true);
+          }
+          setAddedPhrases((prev) => new Set([...prev, data.phrase.toLowerCase()]));
+          setPhraseFormOpen(false);
+          setIsPreviewPhraseOpen(false);
+        }}
+      />
     </div>
   );
 }
