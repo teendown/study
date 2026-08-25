@@ -8,13 +8,20 @@ import {
   StudyResult,
   SpeedShadowing,
   WordPickerModal,
+  PassageClozeSession,
+  StudyStartConfigDialog,
+  type StudyStartConfig,
   generateQuestions,
   saveStudySessionAction,
   type GeneratedQuestion,
   type SessionSummary,
 } from '@/features/learning';
-import { getVocabulariesAction } from '@/features/vocabulary/services';
+import {
+  getVocabulariesAction,
+  getPassagesAction,
+} from '@/features/vocabulary/services';
 import type { VocabularyWithItem } from '@/features/vocabulary/types';
+import type { PassageItem } from '@/features/vocabulary/types/passageTypes';
 import type { StudyMode } from '@/types';
 import { Loader2 } from 'lucide-react';
 
@@ -116,51 +123,139 @@ const DEFAULT_FALLBACK_VOCAB: VocabularyWithItem[] = [
   },
 ];
 
+const DEFAULT_FALLBACK_PASSAGES: PassageItem[] = [
+  {
+    id: 'passage-1',
+    title: 'The Power of Habit (습관의 힘)',
+    content: `Habits are the small decisions you make and actions you perform every day. According to researchers, habits account for about 40 percent of our behaviors on any given day. Your life today is essentially the sum of your habits. How in shape or out of shape you are? A result of your habits. How happy or unhappy you are? A result of your habits. What you repeatedly do ultimately forms the person you are, the things you believe, and the personality that you portray. By changing your daily habits, you can transform your entire life.`,
+    translation:
+      '습관은 여러분이 매일 내리는 작은 결정과 행동들입니다. 연구원들에 따르면, 습관은 하루 행동의 약 40퍼센트를 차지합니다. 여러분의 오늘의 삶은 본질적으로 습관의 총합입니다. 당신이 얼마나 건강한지, 행복한지는 모두 습관의 결과입니다. 매일의 습관을 바꿈으로써 여러분은 인생 전체를 변화시킬 수 있습니다.',
+    sentences: [
+      'Habits are the small decisions you make and actions you perform every day.',
+      'According to researchers, habits account for about 40 percent of our behaviors on any given day.',
+      'Your life today is essentially the sum of your habits.',
+      'How in shape or out of shape you are? A result of your habits.',
+      'How happy or unhappy you are? A result of your habits.',
+      'What you repeatedly do ultimately forms the person you are, the things you believe, and the personality that you portray.',
+      'By changing your daily habits, you can transform your entire life.',
+    ],
+    vocabularyList: [
+      'habit',
+      'decision',
+      'perform',
+      'researcher',
+      'behavior',
+      'essentially',
+      'ultimately',
+      'transform',
+      'repeatedly',
+      'portray',
+      'percent',
+      'personality',
+      'believe',
+      'action',
+    ],
+    difficulty: 2,
+    grade: 10,
+    source: '고1 영어 모의고사',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
 function StudyContent() {
   const searchParams = useSearchParams();
-  const initialModeParam = (searchParams.get('mode') as StudyMode) || 'learning';
+  const initialModeParam =
+    (searchParams.get('mode') as StudyMode | 'speed_shadowing' | 'passage_cloze') ||
+    'passage_cloze';
 
-  // 뷰 상태: 'selector' | 'studying' | 'shadowing' | 'result'
-  const [viewState, setViewState] = useState<'selector' | 'studying' | 'shadowing' | 'result'>('selector');
+  // 뷰 상태: 'selector' | 'studying' | 'shadowing' | 'cloze' | 'result'
+  const [viewState, setViewState] = useState<
+    'selector' | 'studying' | 'shadowing' | 'cloze' | 'result'
+  >('selector');
+
   const [vocabList, setVocabList] = useState<VocabularyWithItem[]>(DEFAULT_FALLBACK_VOCAB);
+  const [passages, setPassages] = useState<PassageItem[]>(DEFAULT_FALLBACK_PASSAGES);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 팝업 설정 상태
+  const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false);
+  const [selectedModeForDialog, setSelectedModeForDialog] = useState<
+    StudyMode | 'speed_shadowing' | 'passage_cloze'
+  >(initialModeParam);
+
   // 세션 상태
-  const [activeMode, setActiveMode] = useState<StudyMode>(initialModeParam);
+  const [activeMode, setActiveMode] = useState<StudyMode | 'speed_shadowing' | 'passage_cloze'>(
+    initialModeParam
+  );
   const [activeQuestions, setActiveQuestions] = useState<GeneratedQuestion[]>([]);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [targetShadowingList, setTargetShadowingList] = useState<VocabularyWithItem[]>([]);
+
+  // 지문 빈칸 채우기 세션 상태
+  const [activePassageForCloze, setActivePassageForCloze] = useState<PassageItem | null>(null);
+  const [activeClozeRounds, setActiveClozeRounds] = useState<number>(1);
+  const [activeClozeType, setActiveClozeType] = useState<'choice' | 'chips' | 'typing'>('choice');
+  const [activeBlankDensity, setActiveBlankDensity] = useState<
+    'keywords' | 'one_per_sentence' | 'two_per_sentence'
+  >('keywords');
 
   // 단어 직접 선택 상태
   const [isWordPickerOpen, setIsWordPickerOpen] = useState(false);
   const [selectedCustomVocabs, setSelectedCustomVocabs] = useState<VocabularyWithItem[]>([]);
 
-  // 단어 목록 로드
-  const loadVocabs = useCallback(async () => {
+  // 데이터 로드 (단어 & 지문)
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await getVocabulariesAction({ limit: 100 });
-      if (res.success && res.data && res.data.items.length > 0) {
-        setVocabList(res.data.items);
+      const [vocabRes, passageRes] = await Promise.all([
+        getVocabulariesAction({ limit: 100 }),
+        getPassagesAction(),
+      ]);
+
+      if (vocabRes.success && vocabRes.data && vocabRes.data.items.length > 0) {
+        setVocabList(vocabRes.data.items);
       }
-    } catch {}
-    finally {
+
+      if (passageRes.success && passageRes.data && passageRes.data.items.length > 0) {
+        setPassages(passageRes.data.items);
+      }
+    } catch {
+      // fallback to initial data
+    } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadVocabs();
-  }, [loadVocabs]);
+    loadData();
+  }, [loadData]);
 
-  // 학습 시작 (일반 퀴즈 vs 스피드 섀도잉)
-  const handleStartSession = (
-    mode: StudyMode | 'speed_shadowing',
-    count: number,
-    customVocabs?: VocabularyWithItem[]
-  ) => {
+  // 학습 시작 팝업 열기 핸들러
+  const handleRequestStartPopup = (mode: StudyMode | 'speed_shadowing' | 'passage_cloze') => {
+    setSelectedModeForDialog(mode);
+    setIsConfigDialogOpen(true);
+  };
+
+  // 팝업에서 횟수/옵션 확정 후 학습 시작
+  const handleConfirmStart = (config: StudyStartConfig) => {
+    const { mode, count, selectedPassage, repeatRounds, questionType, blankDensity, customVocabs } = config;
     const targetVocabs = customVocabs && customVocabs.length > 0 ? customVocabs : vocabList;
 
+    setActiveMode(mode);
+
+    // 1. 지문 빈칸 채우기 모드
+    if (mode === 'passage_cloze') {
+      const passageToUse = selectedPassage || passages[0] || DEFAULT_FALLBACK_PASSAGES[0];
+      setActivePassageForCloze(passageToUse);
+      setActiveClozeRounds(repeatRounds || 1);
+      setActiveClozeType(questionType || 'choice');
+      setActiveBlankDensity(blankDensity || 'keywords');
+      setViewState('cloze');
+      return;
+    }
+
+    // 2. 스피드 섀도잉 모드
     if (mode === 'speed_shadowing') {
       const sliced = targetVocabs.slice(0, count);
       setTargetShadowingList(sliced);
@@ -168,13 +263,13 @@ function StudyContent() {
       return;
     }
 
+    // 3. 일반/스피드/복습 퀴즈 모드
     const questions = generateQuestions(targetVocabs, mode as StudyMode, count);
     if (questions.length === 0) {
       alert('출제할 수 있는 단어가 부족합니다.');
       return;
     }
 
-    setActiveMode(mode as StudyMode);
     setActiveQuestions(questions);
     setViewState('studying');
   };
@@ -196,7 +291,7 @@ function StudyContent() {
     handleFinishSession(dummySummary);
   };
 
-  // 일반 문제 세션 완료
+  // 세션 완료 리포트 처리
   const handleFinishSession = async (summary: SessionSummary) => {
     setSessionSummary(summary);
     setViewState('result');
@@ -212,7 +307,11 @@ function StudyContent() {
 
   const handleRetryWrongOnly = () => {
     if (!sessionSummary || sessionSummary.wrongItems.length === 0) return;
-    handleStartSession(activeMode, sessionSummary.wrongItems.length, sessionSummary.wrongItems);
+    handleConfirmStart({
+      mode: activeMode,
+      count: sessionSummary.wrongItems.length,
+      customVocabs: sessionSummary.wrongItems,
+    });
   };
 
   if (isLoading) {
@@ -225,20 +324,38 @@ function StudyContent() {
 
   return (
     <div className="mx-auto max-w-2xl py-2">
+      {/* 0. 학습 모드 선택 화면 */}
       {viewState === 'selector' && (
         <>
           <ModeSelector
-            onStart={(mode, count, custom) => handleStartSession(mode, count, custom)}
+            onStart={(mode, count, custom) =>
+              handleConfirmStart({ mode, count, customVocabs: custom })
+            }
+            onRequestStartPopup={handleRequestStartPopup}
             totalVocabCount={vocabList.length}
+            totalPassageCount={passages.length}
             onOpenWordPicker={() => setIsWordPickerOpen(true)}
             selectedCustomVocabs={selectedCustomVocabs}
             onClearCustomVocabs={() => setSelectedCustomVocabs([])}
           />
+
+          {/* 단어 직접 선택 모달 */}
           <WordPickerModal
             open={isWordPickerOpen}
             onOpenChange={setIsWordPickerOpen}
             allVocabs={vocabList}
             onConfirm={(chosen: VocabularyWithItem[]) => setSelectedCustomVocabs(chosen)}
+          />
+
+          {/* 🌟 학습 횟수 & 옵션 설정 팝업 다이얼로그 */}
+          <StudyStartConfigDialog
+            open={isConfigDialogOpen}
+            onOpenChange={setIsConfigDialogOpen}
+            selectedMode={selectedModeForDialog}
+            totalVocabCount={vocabList.length}
+            selectedCustomVocabs={selectedCustomVocabs}
+            passages={passages}
+            onConfirmStart={handleConfirmStart}
           />
         </>
       )}
@@ -247,7 +364,7 @@ function StudyContent() {
       {viewState === 'studying' && activeQuestions.length > 0 && (
         <StudySession
           questions={activeQuestions}
-          mode={activeMode}
+          mode={activeMode as StudyMode}
           onFinish={handleFinishSession}
           onExit={() => setViewState('selector')}
         />
@@ -262,7 +379,19 @@ function StudyContent() {
         />
       )}
 
-      {/* 3. 학습 결과 리포트 */}
+      {/* 3. 🌟 지문 빈칸 채우기 세션 (Passage Cloze) */}
+      {viewState === 'cloze' && activePassageForCloze && (
+        <PassageClozeSession
+          passage={activePassageForCloze}
+          repeatRounds={activeClozeRounds}
+          questionType={activeClozeType}
+          blankDensity={activeBlankDensity}
+          onFinish={handleFinishSession}
+          onExit={() => setViewState('selector')}
+        />
+      )}
+
+      {/* 4. 학습 결과 리포트 */}
       {viewState === 'result' && sessionSummary && (
         <StudyResult
           summary={sessionSummary}

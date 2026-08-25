@@ -8,6 +8,9 @@ import {
   Sparkles,
   CheckCircle,
   ListChecks,
+  FileText,
+  Play,
+  Sliders,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,24 +20,34 @@ import type { VocabularyWithItem } from '@/features/vocabulary/types';
 
 interface ModeSelectorProps {
   onStart: (
-    mode: StudyMode | 'speed_shadowing',
+    mode: StudyMode | 'speed_shadowing' | 'passage_cloze',
     questionCount: number,
     customVocabs?: VocabularyWithItem[]
   ) => void;
+  onRequestStartPopup?: (mode: StudyMode | 'speed_shadowing' | 'passage_cloze') => void;
   totalVocabCount: number;
+  totalPassageCount?: number;
   onOpenWordPicker: () => void;
   selectedCustomVocabs: VocabularyWithItem[];
   onClearCustomVocabs: () => void;
 }
 
 const MODES: {
-  id: StudyMode | 'speed_shadowing';
+  id: StudyMode | 'speed_shadowing' | 'passage_cloze';
   title: string;
   desc: string;
   badge: string;
   icon: React.ReactNode;
   gradient: string;
 }[] = [
+  {
+    id: 'passage_cloze',
+    title: '지문 빈칸 채우기 (Passage Cloze)',
+    desc: '등록된 영어 지문에서 핵심 어휘의 빈칸을 채우며 문맥을 완성하는 심층 독해 학습!',
+    badge: '신규 추천 ✨',
+    icon: <FileText className="h-6 w-6 text-indigo-500" />,
+    gradient: 'from-indigo-500/15 via-purple-500/5 to-transparent hover:border-indigo-500/40',
+  },
   {
     id: 'speed_shadowing',
     title: '스피드 섀도잉 (Speed Shadowing)',
@@ -47,7 +60,7 @@ const MODES: {
     id: 'learning',
     title: '기본 학습 모드',
     desc: '시간 제한 없이 객관식, 빈칸, 타이핑 문제를 골고루 학습합니다.',
-    badge: '추천',
+    badge: '기본',
     icon: <GraduationCap className="h-6 w-6 text-blue-500" />,
     gradient: 'from-blue-500/15 via-indigo-500/5 to-transparent hover:border-blue-500/40',
   },
@@ -71,67 +84,102 @@ const MODES: {
 
 export function ModeSelector({
   onStart,
+  onRequestStartPopup,
   totalVocabCount,
+  totalPassageCount = 0,
   onOpenWordPicker,
   selectedCustomVocabs,
   onClearCustomVocabs,
 }: ModeSelectorProps) {
-  const [selectedMode, setSelectedMode] = useState<StudyMode | 'speed_shadowing'>('speed_shadowing');
-  const [count, setCount] = useState<number>(10);
+  const [selectedMode, setSelectedMode] = useState<
+    StudyMode | 'speed_shadowing' | 'passage_cloze'
+  >('passage_cloze');
 
   const hasCustomSelection = selectedCustomVocabs.length > 0;
+  const isPassageMode = selectedMode === 'passage_cloze';
+
+  const handleStartClick = () => {
+    if (onRequestStartPopup) {
+      onRequestStartPopup(selectedMode);
+    } else {
+      onStart(
+        selectedMode,
+        hasCustomSelection ? selectedCustomVocabs.length : 10,
+        hasCustomSelection ? selectedCustomVocabs : undefined
+      );
+    }
+  };
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
+    <div className="space-y-6 max-w-2xl mx-auto pb-10">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">학습 모드 & 단어 선택</h2>
+        <h2 className="text-2xl font-bold tracking-tight">학습 모드 선택</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          원하는 학습 방식과 학습할 단어 범위를 설정하세요
+          원하는 학습 방식을 선택하고 횟수를 설정하여 학습을 시작하세요
         </p>
       </div>
 
-      {/* 🎯 단어 선택 범위 카드 */}
-      <Card className="border-2 border-primary/30 bg-primary/5">
-        <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="space-y-1 text-center sm:text-left">
-            <span className="text-xs font-bold text-primary flex items-center justify-center sm:justify-start gap-1">
-              <ListChecks className="h-4 w-4" /> 학습 단어 범위 설정
-            </span>
-            <p className="text-sm font-semibold">
-              {hasCustomSelection ? (
-                <>
-                  내가 직접 선택한 단어{' '}
-                  <span className="text-primary font-bold">{selectedCustomVocabs.length}개</span>로 학습
-                </>
-              ) : (
-                `전체 등록 단어 (${totalVocabCount}개) 중 출제`
-              )}
-            </p>
-          </div>
+      {/* 🎯 단어 선택 범위 카드 (지문 모드가 아닐 때 노출) */}
+      {!isPassageMode && (
+        <Card className="border-2 border-primary/30 bg-primary/5">
+          <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="space-y-1 text-center sm:text-left">
+              <span className="text-xs font-bold text-primary flex items-center justify-center sm:justify-start gap-1">
+                <ListChecks className="h-4 w-4" /> 학습 단어 범위 설정
+              </span>
+              <p className="text-sm font-semibold">
+                {hasCustomSelection ? (
+                  <>
+                    내가 직접 선택한 단어{' '}
+                    <span className="text-primary font-bold">{selectedCustomVocabs.length}개</span>로 학습
+                  </>
+                ) : (
+                  `전체 등록 단어 (${totalVocabCount}개) 중 출제`
+                )}
+              </p>
+            </div>
 
-          <div className="flex gap-2 shrink-0">
-            {hasCustomSelection && (
+            <div className="flex gap-2 shrink-0">
+              {hasCustomSelection && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground"
+                  onClick={onClearCustomVocabs}
+                >
+                  전체 단어로 변경
+                </Button>
+              )}
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="text-xs text-muted-foreground"
-                onClick={onClearCustomVocabs}
+                className="font-bold border-primary/40 text-primary hover:bg-primary/10 gap-1.5"
+                onClick={onOpenWordPicker}
               >
-                전체 단어로 변경
+                <ListChecks className="h-4 w-4" />
+                {hasCustomSelection ? '단어 다시 선택' : '단어 직접 선택하기'}
               </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="font-bold border-primary/40 text-primary hover:bg-primary/10 gap-1.5"
-              onClick={onOpenWordPicker}
-            >
-              <ListChecks className="h-4 w-4" />
-              {hasCustomSelection ? '단어 다시 선택' : '단어 직접 선택하기'}
-            </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 지문 빈칸 모드 안내 배너 */}
+      {isPassageMode && (
+        <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-950 dark:text-indigo-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <div>
+              <p className="font-bold text-xs sm:text-sm">
+                지문 빈칸 채우기 모드가 선택되었습니다
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                등록된 {totalPassageCount}개 지문 중 학습할 지문과 완독 횟수를 다음 팝업에서 선택할 수 있습니다.
+              </p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
       {/* 모드 카드 그리드 */}
       <div className="space-y-3">
@@ -177,50 +225,17 @@ export function ModeSelector({
         })}
       </div>
 
-      {/* 문제 개수 선택 (직접 선택 모드가 아닐 때만 노출) */}
-      {!hasCustomSelection && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">학습 문제 수</CardTitle>
-            <CardDescription>한 번에 풀 문제 개수를 선택하세요.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-4 gap-2">
-              {[5, 10, 15, 20].map((num) => (
-                <Button
-                  key={num}
-                  variant={count === num ? 'default' : 'outline'}
-                  className="font-bold"
-                  onClick={() => setCount(num)}
-                >
-                  {num}문제
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* 학습 시작 버튼 */}
+      {/* 학습 시작 버튼 (클릭 시 횟수 및 옵션 선택 팝업 오픈) */}
       <Button
         size="lg"
-        className="w-full text-base font-bold gap-2 shadow-md hover:shadow-lg transition-all"
-        onClick={() =>
-          onStart(
-            selectedMode,
-            hasCustomSelection ? selectedCustomVocabs.length : count,
-            hasCustomSelection ? selectedCustomVocabs : undefined
-          )
-        }
-        disabled={totalVocabCount === 0}
+        className="w-full text-base font-extrabold gap-2 shadow-lg hover:shadow-xl transition-all h-13 bg-gradient-to-r from-primary via-indigo-600 to-purple-600 text-white"
+        onClick={handleStartClick}
+        disabled={!isPassageMode && totalVocabCount === 0}
       >
-        <Sparkles className="h-5 w-5" />
-        {totalVocabCount === 0
-          ? '단어를 먼저 등록해주세요'
-          : hasCustomSelection
-          ? `선택한 ${selectedCustomVocabs.length}개 단어로 시작하기`
-          : '학습 시작하기'}
+        <Sparkles className="h-5 w-5 fill-current" />
+        <span>학습 횟수 선택하고 시작하기</span>
       </Button>
     </div>
   );
 }
+

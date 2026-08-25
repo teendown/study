@@ -3,3 +3,5 @@ export { StudySession } from './StudySession';
 export { StudyResult } from './StudyResult';
 export { SpeedShadowing } from './SpeedShadowing';
 export { WordPickerModal } from './WordPickerModal';
+export { PassageClozeSession } from './PassageClozeSession';
+export { StudyStartConfigDialog, type StudyStartConfig } from './StudyStartConfigDialog';
