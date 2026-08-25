@@ -27,6 +27,7 @@ import {
 import type { CreateVocabularyInput } from '../schemas';
 import type { VocabularyWithItem } from '../types';
 import { DuplicateChoiceDialog, type DuplicateActionType } from './DuplicateChoiceDialog';
+import { useBackHandler } from '@/lib/navigation';
 
 interface VocabularyFormDialogProps {
   open: boolean;
@@ -43,6 +44,9 @@ export function VocabularyFormDialog({
   initialData,
   mode = 'create',
 }: VocabularyFormDialogProps) {
+  // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
+  useBackHandler(open, () => onOpenChange(false), 'vocab_form');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [searchSuccessMessage, setSearchSuccessMessage] = useState('');

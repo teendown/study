@@ -21,12 +21,14 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { PhraseWithItem, PhraseListResult } from '../types/phraseTypes';
+import { detectPhraseIssues } from '../utils/vocabularyIssueDetector';
 import Link from 'next/link';
 
 interface PhraseListProps {
@@ -82,6 +84,7 @@ export function PhraseList({
   // 🔍 필터 및 정렬
   const [selectedDifficulty, setSelectedDifficulty] = useState<number | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'alphabetical'>('newest');
+  const [showOnlyIssues, setShowOnlyIssues] = useState(false);
 
   // 📄 페이지네이션
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,6 +98,12 @@ export function PhraseList({
 
   const rawItems = initialData?.items ?? [];
   const total = initialData?.total ?? 0;
+
+  const itemsWithIssues = useMemo(() => {
+    return rawItems.filter((p) => detectPhraseIssues(p).hasIssue);
+  }, [rawItems]);
+
+  const issuesCount = itemsWithIssues.length;
 
   const missingCount = useMemo(() => {
     return rawItems.filter(
@@ -111,6 +120,10 @@ export function PhraseList({
   // 필터링 및 정렬
   const filteredAndSortedItems = useMemo(() => {
     let list = [...rawItems];
+
+    if (showOnlyIssues) {
+      list = list.filter((p) => detectPhraseIssues(p).hasIssue);
+    }
 
     if (selectedDifficulty !== 'all') {
       list = list.filter((p) => p.difficulty === selectedDifficulty);
@@ -130,7 +143,7 @@ export function PhraseList({
     });
 
     return list;
-  }, [rawItems, selectedDifficulty, sortOrder]);
+  }, [rawItems, showOnlyIssues, selectedDifficulty, sortOrder]);
 
   // 페이지 슬라이싱
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedItems.length / pageSize));
@@ -155,6 +168,18 @@ export function PhraseList({
       pageIds.forEach((id) => next.delete(id));
     } else {
       pageIds.forEach((id) => next.add(id));
+    }
+    setSelectedIds(next);
+  };
+
+  const selectAllIssues = () => {
+    const issueIds = itemsWithIssues.map((p) => p.id);
+    const next = new Set(selectedIds);
+    const allIssueSelected = issueIds.every((id) => selectedIds.has(id));
+    if (allIssueSelected) {
+      issueIds.forEach((id) => next.delete(id));
+    } else {
+      issueIds.forEach((id) => next.add(id));
     }
     setSelectedIds(next);
   };
@@ -265,10 +290,35 @@ export function PhraseList({
       )}
 
       {/* ────────────────────────────────────
-          2. 필터 & 정렬 바
+          2. 필터 & 정렬 바 (이상 숙어 모아보기 지원)
          ──────────────────────────────────── */}
       <div className="p-3 bg-card/90 backdrop-blur-xs rounded-xl border border-border shadow-xs flex items-center justify-between gap-2 flex-wrap text-xs">
         <div className="flex items-center gap-2 flex-wrap">
+          {/* ⚠️ 이상 숙어 자동 감지 퀵 필터 버튼 */}
+          <Button
+            variant={showOnlyIssues ? 'default' : 'outline'}
+            size="sm"
+            className={`h-7 text-xs px-2.5 rounded-lg shrink-0 font-bold gap-1 transition-all ${
+              showOnlyIssues
+                ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-xs'
+                : issuesCount > 0
+                ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20'
+                : 'text-muted-foreground'
+            }`}
+            onClick={() => {
+              setShowOnlyIssues(!showOnlyIssues);
+              setCurrentPage(1);
+            }}
+          >
+            <AlertTriangle className={`h-3.5 w-3.5 ${showOnlyIssues ? 'text-white' : 'text-amber-500'}`} />
+            <span>오류/이상 숙어 감지</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+              showOnlyIssues ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-800 dark:text-amber-200'
+            }`}>
+              {issuesCount}
+            </span>
+          </Button>
+
           <div className="flex items-center gap-1">
             <span className="text-muted-foreground font-medium">난이도:</span>
             <select
@@ -323,17 +373,28 @@ export function PhraseList({
       {/* ────────────────────────────────────
           3. 상태 바
          ──────────────────────────────────── */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-1 flex-wrap gap-2">
         <p>
           총 <strong className="text-foreground">{filteredAndSortedItems.length}개</strong>의 숙어
+          {showOnlyIssues && <span className="ml-1 text-amber-600 font-bold">(오류 감지 목록)</span>}
           {pageSize < 9999 && ` (페이지 ${currentPage} / ${totalPages})`}
         </p>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {issuesCount > 0 && (
+            <button
+              onClick={selectAllIssues}
+              className="text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md"
+            >
+              <AlertTriangle className="h-3 w-3 text-amber-600" />
+              오류 {issuesCount}개 일괄 선택
+            </button>
+          )}
+
           {selectedIds.size > 0 && onBatchDelete && (
             <button
               onClick={handleBatchDeleteClick}
-              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1"
+              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-md"
             >
               <Trash2 className="h-3.5 w-3.5" />
               선택 {selectedIds.size}개 삭제
@@ -364,13 +425,25 @@ export function PhraseList({
             <div className="mb-3 rounded-2xl bg-primary/10 p-3.5">
               <Layers className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="text-base font-bold mb-1">등록된 숙어가 없습니다</h3>
+            <h3 className="text-base font-bold mb-1">
+              {showOnlyIssues ? '감지된 오류/이상 숙어가 없습니다! 🎉' : '등록된 숙어가 없습니다'}
+            </h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {searchQuery ? '검색 조건을 변경해보세요.' : '새 숙어를 추가해보세요!'}
+              {showOnlyIssues
+                ? '모든 숙어가 정상적으로 등록되어 있습니다.'
+                : searchQuery
+                ? '검색 조건을 변경해보세요.'
+                : '새 숙어를 추가해보세요!'}
             </p>
-            <Button onClick={onAddClick} size="sm" className="font-bold gap-1.5">
-              <Plus className="h-4 w-4" /> 숙어 추가하기
-            </Button>
+            {showOnlyIssues ? (
+              <Button onClick={() => setShowOnlyIssues(false)} size="sm" variant="outline" className="font-bold">
+                전체 숙어 보기
+              </Button>
+            ) : (
+              <Button onClick={onAddClick} size="sm" className="font-bold gap-1.5">
+                <Plus className="h-4 w-4" /> 숙어 추가하기
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -383,12 +456,17 @@ export function PhraseList({
           {pagedItems.map((phrase) => {
             const diff = difficultyLabels[phrase.difficulty] ?? difficultyLabels[1];
             const isSelected = selectedIds.has(phrase.id);
+            const issueResult = detectPhraseIssues(phrase);
 
             return (
               <Card
                 key={phrase.id}
                 className={`group relative overflow-hidden transition-all cursor-pointer border hover:border-indigo-500/50 hover:shadow-md bg-card/95 backdrop-blur-xs ${
-                  isSelected ? 'border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500' : 'border-border'
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500'
+                    : issueResult.hasIssue
+                    ? 'border-amber-500/40 bg-amber-500/[0.02]'
+                    : 'border-border'
                 }`}
                 onClick={() => onItemClick(phrase)}
               >
@@ -435,6 +513,15 @@ export function PhraseList({
                       </Button>
                     )}
                   </div>
+
+                  {issueResult.hasIssue && (
+                    <div className="flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-2.5 w-2.5 text-amber-600" />
+                        {issueResult.primaryLabel}
+                      </span>
+                    </div>
+                  )}
 
                   <p className="text-xs sm:text-sm text-foreground/90 font-medium line-clamp-2 leading-snug">
                     {phrase.meaning || '의미 검색 필요'}
@@ -483,12 +570,17 @@ export function PhraseList({
           {pagedItems.map((phrase) => {
             const diff = difficultyLabels[phrase.difficulty] ?? difficultyLabels[1];
             const isSelected = selectedIds.has(phrase.id);
+            const issueResult = detectPhraseIssues(phrase);
 
             return (
               <Card
                 key={phrase.id}
                 className={`card-hover cursor-pointer transition-all group ${
-                  isSelected ? 'border-indigo-500/50 bg-indigo-500/5 ring-1 ring-indigo-500/30' : 'border-border'
+                  isSelected
+                    ? 'border-indigo-500/50 bg-indigo-500/5 ring-1 ring-indigo-500/30'
+                    : issueResult.hasIssue
+                    ? 'border-amber-500/40 bg-amber-500/[0.02]'
+                    : 'border-border'
                 }`}
                 onClick={() => onItemClick(phrase)}
               >
@@ -521,6 +613,12 @@ export function PhraseList({
                           >
                             <Volume2 className="h-3 w-3" />
                           </Button>
+                          {issueResult.hasIssue && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              <AlertTriangle className="h-3 w-3 text-amber-600" />
+                              {issueResult.primaryLabel}
+                            </span>
+                          )}
                         </div>
 
                         <p className="text-sm text-foreground/90 font-medium truncate">

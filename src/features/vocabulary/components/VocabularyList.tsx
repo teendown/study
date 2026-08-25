@@ -22,12 +22,16 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
+import { detectVocabularyIssues } from '../utils/vocabularyIssueDetector';
 import Link from 'next/link';
 
 interface VocabularyListProps {
@@ -94,6 +98,9 @@ export function VocabularyList({
   const [selectedDifficulty, setSelectedDifficulty] = useState<number | 'all'>('all');
   const [selectedPos, setSelectedPos] = useState<string | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'alphabetical' | 'difficulty-asc' | 'difficulty-desc'>('newest');
+  
+  // ⚠️ 이상/오타/표기 오류 단어만 모아보기 필터
+  const [showOnlyIssues, setShowOnlyIssues] = useState(false);
 
   // 📄 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
@@ -107,6 +114,13 @@ export function VocabularyList({
 
   const rawItems = initialData?.items ?? [];
   const total = initialData?.total ?? 0;
+
+  // 전체 단어 중 오류/이상 항목 분석
+  const itemsWithIssues = useMemo(() => {
+    return rawItems.filter((v) => detectVocabularyIssues(v).hasIssue);
+  }, [rawItems]);
+
+  const issuesCount = itemsWithIssues.length;
 
   // 뜻이나 정보가 누락된 단어 수 계산
   const missingCount = useMemo(() => {
@@ -134,6 +148,11 @@ export function VocabularyList({
   // 다중 필터링 및 정렬 적용
   const filteredAndSortedItems = useMemo(() => {
     let list = [...rawItems];
+
+    // 0. 이상/오류 단어 전용 필터
+    if (showOnlyIssues) {
+      list = list.filter((v) => detectVocabularyIssues(v).hasIssue);
+    }
 
     // 1. 날짜 필터
     if (selectedDateFilter !== 'all') {
@@ -178,7 +197,7 @@ export function VocabularyList({
     });
 
     return list;
-  }, [rawItems, selectedDateFilter, selectedDifficulty, selectedPos, sortOrder]);
+  }, [rawItems, showOnlyIssues, selectedDateFilter, selectedDifficulty, selectedPos, sortOrder]);
 
   // 페이지네이션 슬라이싱
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedItems.length / pageSize));
@@ -203,6 +222,18 @@ export function VocabularyList({
       pageIds.forEach((id) => next.delete(id));
     } else {
       pageIds.forEach((id) => next.add(id));
+    }
+    setSelectedIds(next);
+  };
+
+  const selectAllIssues = () => {
+    const issueIds = itemsWithIssues.map((v) => v.id);
+    const next = new Set(selectedIds);
+    const allIssueSelected = issueIds.every((id) => selectedIds.has(id));
+    if (allIssueSelected) {
+      issueIds.forEach((id) => next.delete(id));
+    } else {
+      issueIds.forEach((id) => next.add(id));
     }
     setSelectedIds(next);
   };
@@ -315,20 +346,48 @@ export function VocabularyList({
       )}
 
       {/* ────────────────────────────────────
-          2. 다차원 분류 및 필터 바 (날짜, 난이도, 품사, 정렬, 페이지당 개수)
+          2. 다차원 분류 및 필터 바 (날짜, 난이도, 품사, 정렬, 이상단어 모아보기)
          ──────────────────────────────────── */}
       <div className="p-3 bg-card/90 backdrop-blur-xs rounded-xl border border-border shadow-xs space-y-2.5 text-xs">
-        {/* 1행: 날짜 필터 칩 */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+        {/* 1행: 이상 단어 필터 토글 & 날짜 필터 칩 */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar flex-wrap sm:flex-nowrap">
+          {/* ⚠️ 이상/오류 단어 자동 감지 퀵 필터 버튼 */}
+          <Button
+            variant={showOnlyIssues ? 'default' : 'outline'}
+            size="sm"
+            className={`h-7 text-xs px-2.5 rounded-lg shrink-0 font-bold gap-1 transition-all ${
+              showOnlyIssues
+                ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-xs'
+                : issuesCount > 0
+                ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20'
+                : 'text-muted-foreground'
+            }`}
+            onClick={() => {
+              setShowOnlyIssues(!showOnlyIssues);
+              setCurrentPage(1);
+            }}
+          >
+            <AlertTriangle className={`h-3.5 w-3.5 ${showOnlyIssues ? 'text-white' : 'text-amber-500'}`} />
+            <span>오류/이상 단어 자동 감지</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+              showOnlyIssues ? 'bg-white/20 text-white' : 'bg-amber-500/20 text-amber-800 dark:text-amber-200'
+            }`}>
+              {issuesCount}
+            </span>
+          </Button>
+
+          <div className="h-4 w-px bg-border hidden sm:block shrink-0 mx-1" />
+
           <span className="text-muted-foreground font-semibold flex items-center gap-1 shrink-0 mr-1">
             <Calendar className="h-3.5 w-3.5" /> 날짜:
           </span>
           <Button
-            variant={selectedDateFilter === 'all' ? 'default' : 'outline'}
+            variant={selectedDateFilter === 'all' && !showOnlyIssues ? 'default' : 'outline'}
             size="sm"
             className="h-6.5 text-[11px] px-2.5 rounded-lg shrink-0 font-medium"
             onClick={() => {
               setSelectedDateFilter('all');
+              setShowOnlyIssues(false);
               setCurrentPage(1);
             }}
           >
@@ -339,11 +398,12 @@ export function VocabularyList({
             return (
               <Button
                 key={dKey}
-                variant={selectedDateFilter === dKey ? 'default' : 'outline'}
+                variant={selectedDateFilter === dKey && !showOnlyIssues ? 'default' : 'outline'}
                 size="sm"
                 className="h-6.5 text-[11px] px-2.5 rounded-lg shrink-0 font-medium"
                 onClick={() => {
                   setSelectedDateFilter(dKey);
+                  setShowOnlyIssues(false);
                   setCurrentPage(1);
                 }}
               >
@@ -435,22 +495,35 @@ export function VocabularyList({
       {/* ────────────────────────────────────
           3. 상태 바: 표시 건수, 선택/일괄삭제
          ──────────────────────────────────── */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-1 flex-wrap gap-2">
         <p>
           총 <strong className="text-foreground">{filteredAndSortedItems.length}개</strong>의 단어
+          {showOnlyIssues && <span className="ml-1 text-amber-600 font-bold">(오류 감지 목록)</span>}
           {pageSize < 9999 && ` (페이지 ${currentPage} / ${totalPages})`}
         </p>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* 오류 단어 전체 선택 버튼 */}
+          {issuesCount > 0 && (
+            <button
+              onClick={selectAllIssues}
+              className="text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-md"
+            >
+              <AlertTriangle className="h-3 w-3 text-amber-600" />
+              오류 {issuesCount}개 일괄 선택
+            </button>
+          )}
+
           {selectedIds.size > 0 && onBatchDelete && (
             <button
               onClick={handleBatchDeleteClick}
-              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1"
+              className="text-xs font-bold text-destructive hover:underline flex items-center gap-1 bg-destructive/10 px-2 py-0.5 rounded-md"
             >
               <Trash2 className="h-3.5 w-3.5" />
               선택 {selectedIds.size}개 삭제
             </button>
           )}
+
           {pagedItems.length > 0 && (
             <button
               onClick={selectAllCurrentPage}
@@ -476,13 +549,25 @@ export function VocabularyList({
             <div className="mb-3 rounded-2xl bg-primary/10 p-3.5">
               <BookOpen className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="text-base font-bold mb-1">등록된 단어가 없습니다</h3>
+            <h3 className="text-base font-bold mb-1">
+              {showOnlyIssues ? '감지된 오류/이상 단어가 없습니다! 🎉' : '등록된 단어가 없습니다'}
+            </h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {searchQuery ? '검색 조건을 변경해보세요.' : '새 단어를 추가하거나 사진 OCR로 등록해보세요!'}
+              {showOnlyIssues
+                ? '모든 단어가 정상적으로 등록되어 있습니다.'
+                : searchQuery
+                ? '검색 조건을 변경해보세요.'
+                : '새 단어를 추가하거나 사진 OCR로 등록해보세요!'}
             </p>
-            <Button onClick={onAddClick} size="sm" className="font-bold gap-1.5">
-              <Plus className="h-4 w-4" /> 단어 추가하기
-            </Button>
+            {showOnlyIssues ? (
+              <Button onClick={() => setShowOnlyIssues(false)} size="sm" variant="outline" className="font-bold">
+                전체 단어 보기
+              </Button>
+            ) : (
+              <Button onClick={onAddClick} size="sm" className="font-bold gap-1.5">
+                <Plus className="h-4 w-4" /> 단어 추가하기
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -495,6 +580,7 @@ export function VocabularyList({
           {pagedItems.map((vocab) => {
             const diff = difficultyLabels[vocab.difficulty] ?? difficultyLabels[1];
             const isSelected = selectedIds.has(vocab.id);
+            const issueResult = detectVocabularyIssues(vocab);
             const isMissing =
               !vocab.meaning ||
               vocab.meaning === '의미 미입력' ||
@@ -505,7 +591,11 @@ export function VocabularyList({
               <Card
                 key={vocab.id}
                 className={`group relative overflow-hidden transition-all cursor-pointer border hover:border-primary/50 hover:shadow-md bg-card/95 backdrop-blur-xs ${
-                  isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border'
+                  isSelected
+                    ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                    : issueResult.hasIssue
+                    ? 'border-amber-500/40 bg-amber-500/[0.02]'
+                    : 'border-border'
                 }`}
                 onClick={() => onItemClick(vocab)}
               >
@@ -554,7 +644,7 @@ export function VocabularyList({
                     )}
                   </div>
 
-                  {/* 중간: 품사 & 한글 발음 표기 */}
+                  {/* 중간: 품사 & 한글 발음 표기 & 오류 배지 */}
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
                     {vocab.partOfSpeech && (
                       <span className="font-semibold text-primary bg-primary/10 px-1.5 py-0.2 rounded text-[10px]">
@@ -564,6 +654,13 @@ export function VocabularyList({
                     {vocab.pronunciation && (
                       <span className="text-muted-foreground/80 font-mono">
                         {vocab.pronunciation}
+                      </span>
+                    )}
+                    {/* 감지된 오류 태그 배지 */}
+                    {issueResult.hasIssue && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-2.5 w-2.5 text-amber-600" />
+                        {issueResult.primaryLabel}
                       </span>
                     )}
                   </div>
@@ -615,6 +712,7 @@ export function VocabularyList({
           {pagedItems.map((vocab) => {
             const diff = difficultyLabels[vocab.difficulty] ?? difficultyLabels[1];
             const isSelected = selectedIds.has(vocab.id);
+            const issueResult = detectVocabularyIssues(vocab);
             const isMissing =
               !vocab.meaning ||
               vocab.meaning === '의미 미입력' ||
@@ -625,7 +723,11 @@ export function VocabularyList({
               <Card
                 key={vocab.id}
                 className={`card-hover cursor-pointer transition-all group ${
-                  isSelected ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/30' : 'border-border'
+                  isSelected
+                    ? 'border-primary/50 bg-primary/5 ring-1 ring-primary/30'
+                    : issueResult.hasIssue
+                    ? 'border-amber-500/40 bg-amber-500/[0.02]'
+                    : 'border-border'
                 }`}
                 onClick={() => onItemClick(vocab)}
               >
@@ -666,6 +768,12 @@ export function VocabularyList({
                           {vocab.pronunciation && (
                             <span className="text-[11px] text-muted-foreground/80 font-mono">
                               {vocab.pronunciation}
+                            </span>
+                          )}
+                          {issueResult.hasIssue && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              <AlertTriangle className="h-3 w-3 text-amber-600" />
+                              {issueResult.primaryLabel}
                             </span>
                           )}
                         </div>

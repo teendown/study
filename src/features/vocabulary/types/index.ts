@@ -31,3 +31,6 @@ export interface VocabularyListResult {
   limit: number;
   totalPages: number;
 }
+
+export * from './phraseTypes';
+export * from './passageTypes';

@@ -11,4 +11,5 @@ export { DuplicateChoiceDialog, type DuplicateActionType } from './DuplicateChoi
 export { TabletPenCanvas } from './TabletPenCanvas';
 export { PenSelectionPopover } from './PenSelectionPopover';
 export { PassageStudyDialog } from './PassageStudyDialog';
-
+export { VocabularyPreviewDialog } from './VocabularyPreviewDialog';
+export { PhrasePreviewDialog } from './PhrasePreviewDialog';

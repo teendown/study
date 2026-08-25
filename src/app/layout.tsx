@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NavigationProvider } from "@/lib/navigation";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -46,7 +47,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.png" />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <NavigationProvider>
+          {children}
+        </NavigationProvider>
+      </body>
     </html>
   );
 }

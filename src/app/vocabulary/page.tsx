@@ -5,9 +5,11 @@ import {
   VocabularyList,
   VocabularyFormDialog,
   VocabularyDetail,
+  VocabularyPreviewDialog,
   PhraseList,
   PhraseFormDialog,
   PhraseDetail,
+  PhrasePreviewDialog,
   PassageList,
   PassageDetail,
   PassageFormDialog,
@@ -44,6 +46,23 @@ import type { ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 export default function VocabularyPage() {
   const [activeTab, setActiveTab] = useState<'words' | 'phrases' | 'passages'>('words');
 
+  // 탭 상태 세션 스토리지 복원
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedTab = sessionStorage.getItem('study_quest_vocab_tab');
+      if (savedTab === 'words' || savedTab === 'phrases' || savedTab === 'passages') {
+        setActiveTab(savedTab);
+      }
+    }
+  }, []);
+
+  const handleTabChange = (tab: 'words' | 'phrases' | 'passages') => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('study_quest_vocab_tab', tab);
+    }
+  };
+
   // 단어 상태
   const [vocabData, setVocabData] = useState<VocabularyListResult>({
     items: [],
@@ -55,6 +74,7 @@ export default function VocabularyPage() {
   const [isVocabLoading, setIsVocabLoading] = useState(false);
   const [isVocabAutoFilling, setIsVocabAutoFilling] = useState(false);
   const [selectedVocab, setSelectedVocab] = useState<VocabularyWithItem | null>(null);
+  const [isVocabPreviewOpen, setIsVocabPreviewOpen] = useState(false);
   const [isVocabFormOpen, setIsVocabFormOpen] = useState(false);
   const [vocabFormMode, setVocabFormMode] = useState<'create' | 'edit'>('create');
   const [vocabEditData, setVocabEditData] = useState<Partial<CreateVocabularyInput> | undefined>();
@@ -70,6 +90,7 @@ export default function VocabularyPage() {
   const [isPhraseLoading, setIsPhraseLoading] = useState(false);
   const [isPhraseAutoFilling, setIsPhraseAutoFilling] = useState(false);
   const [selectedPhrase, setSelectedPhrase] = useState<PhraseWithItem | null>(null);
+  const [isPhrasePreviewOpen, setIsPhrasePreviewOpen] = useState(false);
   const [isPhraseFormOpen, setIsPhraseFormOpen] = useState(false);
   const [phraseFormMode, setPhraseFormMode] = useState<'create' | 'edit'>('create');
   const [phraseEditData, setPhraseEditData] = useState<Partial<CreatePhraseInput> | undefined>();
@@ -529,7 +550,7 @@ export default function VocabularyPage() {
               size="sm"
               className="font-bold gap-1.5 rounded-lg text-xs"
               onClick={() => {
-                setActiveTab('words');
+                handleTabChange('words');
                 setSelectedVocab(null);
               }}
             >
@@ -542,7 +563,7 @@ export default function VocabularyPage() {
               size="sm"
               className="font-bold gap-1.5 rounded-lg text-xs"
               onClick={() => {
-                setActiveTab('phrases');
+                handleTabChange('phrases');
                 setSelectedPhrase(null);
               }}
             >
@@ -555,7 +576,7 @@ export default function VocabularyPage() {
               size="sm"
               className="font-bold gap-1.5 rounded-lg text-xs"
               onClick={() => {
-                setActiveTab('passages');
+                handleTabChange('passages');
                 setSelectedPassage(null);
               }}
             >
@@ -567,55 +588,59 @@ export default function VocabularyPage() {
       </div>
 
       {/* ────────────────────────────────────
-          1. 영단어 뷰
+          1. 영단어 뷰 (미리보기 팝업 지원)
          ──────────────────────────────────── */}
       {activeTab === 'words' && (
         <>
-          {selectedVocab ? (
-            <VocabularyDetail
-              vocab={selectedVocab}
-              onBack={() => setSelectedVocab(null)}
-              onEdit={() => {
-                setVocabFormMode('edit');
-                setVocabEditData({
-                  word: selectedVocab.word,
-                  meaning: selectedVocab.meaning,
-                  partOfSpeech: selectedVocab.partOfSpeech || '',
-                  pronunciation: selectedVocab.pronunciation || '',
-                  exampleSentence: selectedVocab.exampleSentence || '',
-                  exampleTranslation: selectedVocab.exampleTranslation || '',
-                  synonyms: selectedVocab.synonyms || '',
-                  antonyms: selectedVocab.antonyms || '',
-                  difficulty: selectedVocab.difficulty,
-                  grade: selectedVocab.grade || undefined,
-                  source: selectedVocab.source || '',
-                });
-                setIsVocabFormOpen(true);
-              }}
-              onDelete={() => handleVocabDelete(selectedVocab.id)}
-              onVocabUpdated={(updated) => {
-                setSelectedVocab(updated);
-                loadVocabularies();
-              }}
-            />
-          ) : (
-            <VocabularyList
-              initialData={vocabData}
-              onAddClick={() => {
-                setVocabFormMode('create');
-                setVocabEditData(undefined);
-                setIsVocabFormOpen(true);
-              }}
-              onItemClick={(v) => setSelectedVocab(v)}
-              onSearch={(q) => loadVocabularies(q)}
-              onDeleteClick={handleVocabDelete}
-              onBatchDelete={handleBatchDeleteVocabs}
-              onAutoFillMissing={handleAutoFillMissingVocabs}
-              isAutoFilling={isVocabAutoFilling}
-              isLoading={isVocabLoading}
-            />
-          )}
+          <VocabularyList
+            initialData={vocabData}
+            onAddClick={() => {
+              setVocabFormMode('create');
+              setVocabEditData(undefined);
+              setIsVocabFormOpen(true);
+            }}
+            onItemClick={(v) => {
+              setSelectedVocab(v);
+              setIsVocabPreviewOpen(true);
+            }}
+            onSearch={(q) => loadVocabularies(q)}
+            onDeleteClick={handleVocabDelete}
+            onBatchDelete={handleBatchDeleteVocabs}
+            onAutoFillMissing={handleAutoFillMissingVocabs}
+            isAutoFilling={isVocabAutoFilling}
+            isLoading={isVocabLoading}
+          />
 
+          {/* 🔍 단어 클릭 시 빠른 미리보기 팝업 (수정, 삭제, 발음, 자동완성 지원) */}
+          <VocabularyPreviewDialog
+            vocab={selectedVocab}
+            open={isVocabPreviewOpen}
+            onOpenChange={setIsVocabPreviewOpen}
+            onEdit={(v) => {
+              setVocabFormMode('edit');
+              setVocabEditData({
+                word: v.word,
+                meaning: v.meaning,
+                partOfSpeech: v.partOfSpeech || '',
+                pronunciation: v.pronunciation || '',
+                exampleSentence: v.exampleSentence || '',
+                exampleTranslation: v.exampleTranslation || '',
+                synonyms: v.synonyms || '',
+                antonyms: v.antonyms || '',
+                difficulty: v.difficulty,
+                grade: v.grade || undefined,
+                source: v.source || '',
+              });
+              setIsVocabFormOpen(true);
+            }}
+            onDelete={(id) => handleVocabDelete(id)}
+            onVocabUpdated={(updated) => {
+              setSelectedVocab(updated);
+              loadVocabularies();
+            }}
+          />
+
+          {/* 📝 단어 등록 / 수정 폼 모달 */}
           <VocabularyFormDialog
             open={isVocabFormOpen}
             onOpenChange={setIsVocabFormOpen}
@@ -627,51 +652,55 @@ export default function VocabularyPage() {
       )}
 
       {/* ────────────────────────────────────
-          2. 영어 숙어 뷰
+          2. 영어 숙어 뷰 (미리보기 팝업 지원)
          ──────────────────────────────────── */}
       {activeTab === 'phrases' && (
         <>
-          {selectedPhrase ? (
-            <PhraseDetail
-              phrase={selectedPhrase}
-              onBack={() => setSelectedPhrase(null)}
-              onEdit={() => {
-                setPhraseFormMode('edit');
-                setPhraseEditData({
-                  phrase: selectedPhrase.phrase,
-                  meaning: selectedPhrase.meaning,
-                  exampleSentence: selectedPhrase.exampleSentence || '',
-                  exampleTranslation: selectedPhrase.exampleTranslation || '',
-                  difficulty: selectedPhrase.difficulty,
-                  grade: selectedPhrase.grade || undefined,
-                  source: selectedPhrase.source || '',
-                });
-                setIsPhraseFormOpen(true);
-              }}
-              onDelete={() => handlePhraseDelete(selectedPhrase.id)}
-              onPhraseUpdated={(updated) => {
-                setSelectedPhrase(updated);
-                loadPhrases();
-              }}
-            />
-          ) : (
-            <PhraseList
-              initialData={phraseData}
-              onAddClick={() => {
-                setPhraseFormMode('create');
-                setPhraseEditData(undefined);
-                setIsPhraseFormOpen(true);
-              }}
-              onItemClick={(p) => setSelectedPhrase(p)}
-              onSearch={(q) => loadPhrases(q)}
-              onDeleteClick={handlePhraseDelete}
-              onBatchDelete={handleBatchPhraseDelete}
-              onAutoFillMissing={handleAutoFillMissingPhrases}
-              isAutoFilling={isPhraseAutoFilling}
-              isLoading={isPhraseLoading}
-            />
-          )}
+          <PhraseList
+            initialData={phraseData}
+            onAddClick={() => {
+              setPhraseFormMode('create');
+              setPhraseEditData(undefined);
+              setIsPhraseFormOpen(true);
+            }}
+            onItemClick={(p) => {
+              setSelectedPhrase(p);
+              setIsPhrasePreviewOpen(true);
+            }}
+            onSearch={(q) => loadPhrases(q)}
+            onDeleteClick={handlePhraseDelete}
+            onBatchDelete={handleBatchPhraseDelete}
+            onAutoFillMissing={handleAutoFillMissingPhrases}
+            isAutoFilling={isPhraseAutoFilling}
+            isLoading={isPhraseLoading}
+          />
 
+          {/* 🔍 숙어 클릭 시 빠른 미리보기 팝업 */}
+          <PhrasePreviewDialog
+            phrase={selectedPhrase}
+            open={isPhrasePreviewOpen}
+            onOpenChange={setIsPhrasePreviewOpen}
+            onEdit={(p) => {
+              setPhraseFormMode('edit');
+              setPhraseEditData({
+                phrase: p.phrase,
+                meaning: p.meaning,
+                exampleSentence: p.exampleSentence || '',
+                exampleTranslation: p.exampleTranslation || '',
+                difficulty: p.difficulty,
+                grade: p.grade || undefined,
+                source: p.source || '',
+              });
+              setIsPhraseFormOpen(true);
+            }}
+            onDelete={(id) => handlePhraseDelete(id)}
+            onPhraseUpdated={(updated) => {
+              setSelectedPhrase(updated);
+              loadPhrases();
+            }}
+          />
+
+          {/* 📝 숙어 등록 / 수정 폼 모달 */}
           <PhraseFormDialog
             open={isPhraseFormOpen}
             onOpenChange={setIsPhraseFormOpen}

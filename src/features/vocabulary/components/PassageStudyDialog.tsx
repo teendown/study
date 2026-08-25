@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import type { PassageItem } from '../types/passageTypes';
 import { TabletPenCanvas } from './TabletPenCanvas';
+import { useBackHandler } from '@/lib/navigation';
 
 export interface PassageStudyDialogProps {
   open: boolean;
@@ -45,6 +46,9 @@ export function PassageStudyDialog({
   onOpenChange,
   passage,
 }: PassageStudyDialogProps) {
+  // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
+  useBackHandler(open, () => onOpenChange(false), 'passage_study');
+
   const [studyMode, setStudyMode] = useState<StudyMode>('quiz');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);

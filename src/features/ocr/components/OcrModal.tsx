@@ -26,6 +26,7 @@ import { OcrPassageReview } from './OcrPassageReview';
 import type { ExtractedWordCandidate } from '@/lib/ocr/tokenizer';
 import type { ExtractedPhraseResult } from '@/lib/ocr/phraseDictionary';
 import type { OcrStep } from '../types';
+import { useBackHandler } from '@/lib/navigation';
 
 interface OcrModalProps {
   open: boolean;
@@ -42,6 +43,9 @@ export function OcrModal({
   onSavePhrases,
   onSavePassage,
 }: OcrModalProps) {
+  // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
+  useBackHandler(open, () => onOpenChange(false), 'ocr_modal');
+
   const [step, setStep] = useState<OcrStep>('upload');
   const [activeView, setActiveView] = useState<'words' | 'phrases' | 'passage'>('words');
   const [progress, setProgress] = useState(0);

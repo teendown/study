@@ -27,6 +27,7 @@ import {
 import type { CreatePhraseInput } from '../schemas/phraseSchemas';
 import type { PhraseWithItem } from '../types/phraseTypes';
 import { DuplicateChoiceDialog, type DuplicateActionType } from './DuplicateChoiceDialog';
+import { useBackHandler } from '@/lib/navigation';
 
 interface PhraseFormDialogProps {
   open: boolean;
@@ -43,6 +44,9 @@ export function PhraseFormDialog({
   initialData,
   mode = 'create',
 }: PhraseFormDialogProps) {
+  // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
+  useBackHandler(open, () => onOpenChange(false), 'phrase_form');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [searchSuccessMessage, setSearchSuccessMessage] = useState('');

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import type { CreatePassageInput } from '../types/passageTypes';
 import { translatePassageWithSentences } from '@/lib/ai/geminiService';
+import { useBackHandler } from '@/lib/navigation';
 
 interface PassageFormDialogProps {
   open: boolean;
@@ -37,6 +38,9 @@ export function PassageFormDialog({
   initialData,
   mode = 'create',
 }: PassageFormDialogProps) {
+  // 📱 휴대폰 뒤로가기 누를 시 모달 닫기
+  useBackHandler(open, () => onOpenChange(false), 'passage_form');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationSuccessMessage, setTranslationSuccessMessage] = useState('');
