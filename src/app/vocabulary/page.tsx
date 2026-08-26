@@ -14,18 +14,21 @@ import {
   PassageList,
   PassageDetail,
   PassageFormDialog,
+  BatchFixResultModal,
   getVocabulariesAction,
   addVocabularyAction,
   updateVocabularyAction,
   deleteVocabularyAction,
   batchDeleteVocabulariesAction,
   autoFillMissingVocabulariesAction,
+  inspectAndFixVocabulariesAction,
   getPhrasesAction,
   addPhraseAction,
   updatePhraseAction,
   deletePhraseAction,
   batchDeletePhrasesAction,
   autoFillMissingPhrasesAction,
+  inspectAndFixPhrasesAction,
   getPassagesAction,
   addPassageAction,
   updatePassageAction,
@@ -36,6 +39,7 @@ import {
   type PhraseWithItem,
   type PhraseListResult,
   type CreatePhraseInput,
+  type BatchFixResult,
 } from '@/features/vocabulary';
 import type { PassageItem, PassageListResult, CreatePassageInput } from '@/features/vocabulary/types/passageTypes';
 import { BookOpen, Layers, Camera, FileText } from 'lucide-react';
@@ -113,6 +117,13 @@ export default function VocabularyPage() {
 
   // OCR 모달 상태
   const [isOcrOpen, setIsOcrOpen] = useState(false);
+
+  // 결함 정밀 검사 및 일괄 교정 상태
+  const [batchFixResult, setBatchFixResult] = useState<BatchFixResult | null>(null);
+  const [isBatchFixModalOpen, setIsBatchFixModalOpen] = useState(false);
+  const [batchFixType, setBatchFixType] = useState<'words' | 'phrases'>('words');
+  const [isVocabInspecting, setIsVocabInspecting] = useState(false);
+  const [isPhraseInspecting, setIsPhraseInspecting] = useState(false);
 
   // 단어 목록 로드
   const loadVocabularies = useCallback(async (query: string = '') => {
@@ -395,6 +406,42 @@ export default function VocabularyPage() {
     }
   };
 
+  // 단어 정밀 검사 및 결함 일괄 자동 교정 핸들러
+  const handleInspectAndFixVocabs = async (targetIds?: string[]) => {
+    setIsVocabInspecting(true);
+    try {
+      const res = await inspectAndFixVocabulariesAction(targetIds);
+      if (res.success && res.data) {
+        setBatchFixResult(res.data);
+        setBatchFixType('words');
+        setIsBatchFixModalOpen(true);
+        await loadVocabularies();
+      }
+    } catch {
+      alert('단어 자동 교정 수행 중 오류가 발생했습니다.');
+    } finally {
+      setIsVocabInspecting(false);
+    }
+  };
+
+  // 숙어 정밀 검사 및 결함 일괄 자동 교정 핸들러
+  const handleInspectAndFixPhrases = async (targetIds?: string[]) => {
+    setIsPhraseInspecting(true);
+    try {
+      const res = await inspectAndFixPhrasesAction(targetIds);
+      if (res.success && res.data) {
+        setBatchFixResult(res.data);
+        setBatchFixType('phrases');
+        setIsBatchFixModalOpen(true);
+        await loadPhrases();
+      }
+    } catch {
+      alert('숙어 자동 교정 수행 중 오류가 발생했습니다.');
+    } finally {
+      setIsPhraseInspecting(false);
+    }
+  };
+
   // 지문 CRUD 핸들러
   const handlePassageFormSubmit = async (input: CreatePassageInput) => {
     if (passageFormMode === 'create') {
@@ -612,7 +659,9 @@ export default function VocabularyPage() {
             onDeleteClick={handleVocabDelete}
             onBatchDelete={handleBatchDeleteVocabs}
             onAutoFillMissing={handleAutoFillMissingVocabs}
+            onInspectAndFix={handleInspectAndFixVocabs}
             isAutoFilling={isVocabAutoFilling}
+            isInspectingAndFixing={isVocabInspecting}
             isLoading={isVocabLoading}
           />
 
@@ -691,7 +740,9 @@ export default function VocabularyPage() {
             onDeleteClick={handlePhraseDelete}
             onBatchDelete={handleBatchPhraseDelete}
             onAutoFillMissing={handleAutoFillMissingPhrases}
+            onInspectAndFix={handleInspectAndFixPhrases}
             isAutoFilling={isPhraseAutoFilling}
+            isInspectingAndFixing={isPhraseInspecting}
             isLoading={isPhraseLoading}
           />
 
@@ -739,13 +790,21 @@ export default function VocabularyPage() {
           {selectedPassage ? (
             <PassageDetail
               passage={selectedPassage}
-              onBack={() => setSelectedPassage(null)}
+              onBack={() => {
+                setSelectedPassage(null);
+                loadPassages();
+              }}
+              onUpdatePassage={(updated) => {
+                setSelectedPassage(updated);
+                loadPassages();
+              }}
               onEdit={() => {
                 setPassageFormMode('edit');
                 setPassageEditData({
                   title: selectedPassage.title,
                   content: selectedPassage.content,
                   translation: selectedPassage.translation || undefined,
+                  sentenceTranslations: selectedPassage.sentenceTranslations || undefined,
                   difficulty: selectedPassage.difficulty,
                   grade: selectedPassage.grade || undefined,
                   source: selectedPassage.source,
@@ -791,6 +850,14 @@ export default function VocabularyPage() {
         onSaveWords={handleOcrSaveWords}
         onSavePhrases={handleOcrSavePhrases}
         onSavePassage={handleOcrSavePassage}
+      />
+
+      {/* ⚡ 결함/오류 자동 교정 리포트 모달 */}
+      <BatchFixResultModal
+        open={isBatchFixModalOpen}
+        onOpenChange={setIsBatchFixModalOpen}
+        result={batchFixResult}
+        type={batchFixType}
       />
     </div>
   );

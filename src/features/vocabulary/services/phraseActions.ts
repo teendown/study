@@ -376,3 +376,137 @@ export async function autoFillMissingPhrasesAction(): Promise<
 
   return { success: true, data: { updatedCount, totalChecked: all.length } };
 }
+
+/**
+ * 선택된 숙어 항목 또는 전체 숙어 정밀 검사 및 결함/오류 일괄 자동 교정
+ */
+export async function inspectAndFixPhrasesAction(
+  targetIds?: string[]
+): Promise<ActionResult<{ totalInspected: number; fixedCount: number; details: Array<{ id: string; originalWord: string; fixedWord: string; originalMeaning: string; fixedMeaning: string; reasons: string[] }> }>> {
+  const all = getStoredPhrases();
+  const idSet = targetIds && targetIds.length > 0 ? new Set(targetIds) : null;
+  const targets = idSet ? all.filter((p) => idSet.has(p.id)) : [...all];
+
+  let fixedCount = 0;
+  const details: Array<{
+    id: string;
+    originalWord: string;
+    fixedWord: string;
+    originalMeaning: string;
+    fixedMeaning: string;
+    reasons: string[];
+  }> = [];
+
+  for (const item of targets) {
+    const idx = all.findIndex((p) => p.id === item.id);
+    if (idx === -1) continue;
+
+    const originalPhrase = item.phrase || '';
+    const originalMeaning = item.meaning || '';
+    const originalEx = item.exampleSentence || '';
+    const originalExTrans = item.exampleTranslation || '';
+
+    const reasons: string[] = [];
+
+    // 1. 숙어 철자 및 특수기호 오류 교정
+    let currentPhrase = originalPhrase.trim();
+    if (/[@#$%^&*~|\\_=+<>\[\]{}]/.test(currentPhrase)) {
+      currentPhrase = currentPhrase.replace(/[@#$%^&*~|\\_=+<>\[\]{}]/g, '').trim();
+      reasons.push('숙어 특수기호 오류 정제');
+    }
+
+    // 2. 뜻 텍스트 정제 및 예문 분리
+    const { meaning: cleanedMeaning, exampleSentence: extractedEx, exampleTranslation: extractedExTrans } =
+      cleanMeaningAndExtractExample(
+        originalMeaning,
+        currentPhrase,
+        originalEx,
+        originalExTrans
+      );
+
+    let currentMeaning = cleanedMeaning;
+    let currentEx = extractedEx || originalEx || null;
+    let currentExTrans = extractedExTrans || originalExTrans || null;
+
+    if (cleanedMeaning !== originalMeaning) {
+      reasons.push('뜻 구두점 및 마침표/괄호 정제');
+    }
+    if (extractedEx && extractedEx !== originalEx) {
+      reasons.push('예문 텍스트 자동 분리');
+    }
+
+    // 3. 누락된 뜻 복원 및 자동 채우기
+    const isMissingMeaning =
+      !currentMeaning ||
+      currentMeaning.trim() === '' ||
+      currentMeaning === '의미 미입력' ||
+      currentMeaning === '의미 검색 필요' ||
+      currentMeaning === '뜻 미입력' ||
+      !/[가-힣]/.test(currentMeaning);
+
+    if (isMissingMeaning && currentPhrase) {
+      try {
+        const searchRes = await searchPhraseOnline(currentPhrase);
+        if (searchRes && searchRes.meaning && searchRes.meaning !== '의미 검색 필요') {
+          currentMeaning = searchRes.meaning;
+          reasons.push('온라인/내장 사전에서 숙어 뜻 자동 수집');
+          if (!currentEx && searchRes.exampleSentence) {
+            currentEx = searchRes.exampleSentence;
+            currentExTrans = searchRes.exampleTranslation || currentExTrans;
+            reasons.push('추가 숙어 예문 등록');
+          }
+        }
+      } catch {}
+    }
+
+    const isChanged =
+      currentPhrase !== originalPhrase ||
+      currentMeaning !== originalMeaning ||
+      (currentEx || '') !== (originalEx || '') ||
+      (currentExTrans || '') !== (originalExTrans || '');
+
+    if (isChanged && reasons.length > 0) {
+      fixedCount++;
+      const updatedItem: PhraseWithItem = {
+        ...all[idx],
+        phrase: currentPhrase,
+        meaning: currentMeaning,
+        exampleSentence: currentEx,
+        exampleTranslation: currentExTrans,
+        updatedAt: new Date().toISOString(),
+      };
+
+      all[idx] = updatedItem;
+      details.push({
+        id: item.id,
+        originalWord: originalPhrase,
+        fixedWord: currentPhrase,
+        originalMeaning,
+        fixedMeaning: currentMeaning,
+        reasons,
+      });
+
+      // Turso Cloud DB 동기화
+      updatePhraseInTurso(item.id, {
+        phrase: currentPhrase,
+        meaning: currentMeaning,
+        exampleSentence: currentEx || undefined,
+        exampleTranslation: currentExTrans || undefined,
+      }).catch(() => {});
+    }
+  }
+
+  if (fixedCount > 0) {
+    saveStoredPhrases(all);
+  }
+
+  return {
+    success: true,
+    data: {
+      totalInspected: targets.length,
+      fixedCount,
+      details,
+    },
+  };
+}
+

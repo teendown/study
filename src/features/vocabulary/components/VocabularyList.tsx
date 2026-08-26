@@ -44,7 +44,9 @@ interface VocabularyListProps {
   onDeleteClick?: (id: string) => void;
   onBatchDelete?: (ids: string[]) => void;
   onAutoFillMissing?: () => Promise<void>;
+  onInspectAndFix?: (targetIds?: string[]) => Promise<void>;
   isAutoFilling?: boolean;
+  isInspectingAndFixing?: boolean;
   isLoading?: boolean;
 }
 
@@ -87,7 +89,9 @@ export function VocabularyList({
   onDeleteClick,
   onBatchDelete,
   onAutoFillMissing,
+  onInspectAndFix,
   isAutoFilling = false,
+  isInspectingAndFixing = false,
   isLoading = false,
 }: VocabularyListProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -217,6 +221,20 @@ export function VocabularyList({
     setSelectedIds(next);
   };
 
+  const selectAllAllPages = () => {
+    const allFilteredIds = filteredAndSortedItems.map((i) => i.id);
+    const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(allFilteredIds));
+    }
+  };
+
+  const isAllItemsSelected =
+    filteredAndSortedItems.length > 0 &&
+    filteredAndSortedItems.every((item) => selectedIds.has(item.id));
+
   const selectAllCurrentPage = () => {
     const pageIds = pagedItems.map((i) => i.id);
     const allSelected = pageIds.every((id) => selectedIds.has(id));
@@ -247,6 +265,13 @@ export function VocabularyList({
 
   const isAllCurrentPageSelected =
     pagedItems.length > 0 && pagedItems.every((item) => selectedIds.has(item.id));
+
+  const handleInspectAndFixClick = async () => {
+    if (!onInspectAndFix) return;
+    const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : undefined;
+    await onInspectAndFix(targetIds);
+    setSelectedIds(new Set());
+  };
 
   const handleDeleteItem = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -316,6 +341,28 @@ export function VocabularyList({
               <ListIcon className="h-4 w-4" />
             </Button>
           </div>
+
+          {onInspectAndFix && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleInspectAndFixClick}
+              disabled={isInspectingAndFixing}
+              className="h-9.5 gap-1.5 font-bold shadow-xs bg-amber-500/10 text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 border border-amber-500/30"
+              title="선택된 항목 또는 전체 단어를 검사하여 오탈자, 뜻 섞임, 구두점, 누락 정보를 자동 교정합니다"
+            >
+              {isInspectingAndFixing ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              )}
+              <span>
+                {selectedIds.size > 0
+                  ? `선택 ${selectedIds.size}개 오류 교정`
+                  : `잘못된 단어 자동 교정${issuesCount > 0 ? ` (${issuesCount}개 감지)` : ''}`}
+              </span>
+            </Button>
+          )}
 
           {onBatchAddClick && (
             <Button
@@ -528,7 +575,23 @@ export function VocabularyList({
         </p>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* 오류 단어 전체 선택 버튼 */}
+          {/* ⚡ 전체 선택 버튼 (전체 N개 항목) */}
+          {filteredAndSortedItems.length > 0 && (
+            <button
+              onClick={selectAllAllPages}
+              className={`text-xs font-bold px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
+                isAllItemsSelected
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+              }`}
+              title="검색/필터링된 모든 페이지의 단어 전체 선택"
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {isAllItemsSelected ? '전체 선택 해제' : `전체 선택 (${filteredAndSortedItems.length}개)`}
+            </button>
+          )}
+
+          {/* 오류 단어 선택 버튼 */}
           {issuesCount > 0 && (
             <button
               onClick={selectAllIssues}
@@ -536,6 +599,23 @@ export function VocabularyList({
             >
               <AlertTriangle className="h-3 w-3 text-amber-600" />
               오류 {issuesCount}개 선택
+            </button>
+          )}
+
+          {/* ⚡ 선택한 단어 오류 자동 교정 버튼 */}
+          {selectedIds.size > 0 && onInspectAndFix && (
+            <button
+              onClick={handleInspectAndFixClick}
+              disabled={isInspectingAndFixing}
+              className="text-xs font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1 bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 rounded-md transition-colors border border-amber-500/40"
+              title="선택한 항목들을 정밀 진단하여 오탈자, 뜻/예문 섞임, 구두점, 누락 정보 자동 교정"
+            >
+              {isInspectingAndFixing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-600" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+              )}
+              선택 {selectedIds.size}개 오류 자동 교정
             </button>
           )}
 
@@ -562,13 +642,13 @@ export function VocabularyList({
             </button>
           )}
 
-          {/* 현재 페이지 전체 선택 / 해제 토글 */}
+          {/* 현재 페이지 선택 토글 */}
           {pagedItems.length > 0 && (
             <button
               onClick={selectAllCurrentPage}
-              className="text-xs font-semibold text-primary hover:underline px-1 py-1"
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground hover:underline px-1 py-1"
             >
-              {isAllCurrentPageSelected ? '현재 페이지 선택 취소' : '현재 페이지 전체 선택'}
+              {isAllCurrentPageSelected ? '현재 페이지 선택 해제' : '현재 페이지 선택'}
             </button>
           )}
         </div>

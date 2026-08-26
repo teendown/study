@@ -237,7 +237,7 @@ export async function deletePassageFromTurso(id: string): Promise<boolean> {
 }
 
 /**
- * 지문 목록 조회 (Turso Cloud DB + 로컬 캐시)
+ * 지문 목록 조회 (Turso Cloud DB + 로컬 캐시 지능형 실시간 병합)
  */
 export async function getPassagesAction(
   searchQuery = ''
@@ -247,7 +247,32 @@ export async function getPassagesAction(
   try {
     const tursoData = await fetchAllPassagesFromTurso();
     if (tursoData && tursoData.length > 0) {
-      all = tursoData;
+      const map = new Map<string, PassageItem>();
+      for (const t of tursoData) {
+        map.set(t.id, t);
+      }
+      for (const l of all) {
+        const existing = map.get(l.id);
+        if (!existing) {
+          map.set(l.id, l);
+          addPassageToTurso(l).catch(() => {});
+        } else {
+          // 로컬에 번역/문장해석이 있고 Turso에 누락되어 있거나 로컬이 더 최신인 경우 로컬 데이터 우선 보존
+          const hasLocalTrans = Boolean(l.sentenceTranslations && l.sentenceTranslations.length > 0);
+          const hasTursoTrans = Boolean(existing.sentenceTranslations && existing.sentenceTranslations.length > 0);
+          if (hasLocalTrans && !hasTursoTrans) {
+            const merged = { ...existing, translation: l.translation || existing.translation, sentenceTranslations: l.sentenceTranslations };
+            map.set(l.id, merged);
+            addPassageToTurso(merged).catch(() => {});
+          } else if (new Date(l.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+            map.set(l.id, l);
+            addPassageToTurso(l).catch(() => {});
+          }
+        }
+      }
+      all = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
       saveStoredPassages(all);
     } else if (tursoData && tursoData.length === 0 && all.length > 0) {
       for (const item of all) {
@@ -285,17 +310,15 @@ export async function addPassageAction(
   input: CreatePassageInput
 ): Promise<ActionResult<PassageItem>> {
   const all = getStoredPassages();
-  const cleanContent = input.content.trim();
-  const sentences = splitPassageIntoSentences(cleanContent);
-  // 단어 개수 제한 없이 모든 단어 추출
-  const vocabularyList = extractEnglishWords(cleanContent).map((w) => w.word);
-  // 숙어/연어 자동 추출
-  const phraseList = extractEnglishPhrases(cleanContent);
+  const content = input.content.trim();
+  const sentences = splitPassageIntoSentences(content);
+  const vocabularyList = extractEnglishWords(content).map((w) => w.word);
+  const phraseList = extractEnglishPhrases(content);
 
   const newItem: PassageItem = {
-    id: `passage-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: `passage-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     title: input.title.trim() || '영어 지문 ' + new Date().toLocaleDateString('ko-KR'),
-    content: cleanContent,
+    content,
     translation: input.translation?.trim() || null,
     sentences,
     sentenceTranslations: input.sentenceTranslations,
@@ -311,8 +334,8 @@ export async function addPassageAction(
   all.unshift(newItem);
   saveStoredPassages(all);
 
-  // Turso Cloud DB 비동기 동기화
-  addPassageToTurso(newItem).catch(() => {});
+  // Turso Cloud DB 실시간 동기화
+  await addPassageToTurso(newItem).catch(() => {});
 
   return { success: true, data: newItem };
 }
@@ -353,7 +376,8 @@ export async function updatePassageAction(
   all[idx] = updated;
   saveStoredPassages(all);
 
-  addPassageToTurso(updated).catch(() => {});
+  // Turso Cloud DB 실시간 동기화
+  await addPassageToTurso(updated).catch(() => {});
 
   return { success: true, data: updated };
 }

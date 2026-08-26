@@ -5,6 +5,8 @@
 
 import type { VocabularyWithItem, VocabularyListResult } from '../types';
 import type { CreateVocabularyInput, UpdateVocabularyInput, SearchVocabularyInput } from '../schemas';
+import { BUILTIN_DICTIONARY, lookupWordMeaning } from '@/lib/ocr/dictionary';
+import { correctOcrWordOrPhrase } from './ocrCorrectionService';
 import {
   searchWordOnline,
   isValidExampleForWord,
@@ -634,8 +636,199 @@ export async function autoFillMissingVocabAction(): Promise<
 // 기존 명칭 하위 호환성 유지
 export const autoFillMissingVocabulariesAction = autoFillMissingVocabAction;
 
+export interface BatchFixDetail {
+  id: string;
+  originalWord: string;
+  fixedWord: string;
+  originalMeaning: string;
+  fixedMeaning: string;
+  reasons: string[];
+}
+
+export interface BatchFixResult {
+  totalInspected: number;
+  fixedCount: number;
+  details: BatchFixDetail[];
+}
+
+/**
+  * 선택된 단어 항목 또는 전체 단어 정밀 검사 및 결함/오류 일괄 자동 교정
+  */
+export async function inspectAndFixVocabulariesAction(
+  targetIds?: string[]
+): Promise<ActionResult<BatchFixResult>> {
+  const all = getStoredVocabs();
+  const idSet = targetIds && targetIds.length > 0 ? new Set(targetIds) : null;
+  const targets = idSet ? all.filter((v) => idSet.has(v.id)) : [...all];
+
+  let fixedCount = 0;
+  const details: BatchFixDetail[] = [];
+
+  for (const item of targets) {
+    const idx = all.findIndex((v) => v.id === item.id);
+    if (idx === -1) continue;
+
+    const originalWord = item.word || '';
+    const originalMeaning = item.meaning || '';
+    const originalEx = item.exampleSentence || '';
+    const originalExTrans = item.exampleTranslation || '';
+    const originalPos = item.partOfSpeech || '';
+    const originalPron = item.pronunciation || '';
+
+    const reasons: string[] = [];
+
+    // 1. 단어 철자 및 OCR 광학 오류 교정 (숫자 섞임, 오탈자 등)
+    let currentWord = originalWord.trim();
+    if (currentWord) {
+      const ocrRes = correctOcrWordOrPhrase(currentWord);
+      if (ocrRes.corrected && ocrRes.corrected !== currentWord) {
+        currentWord = ocrRes.corrected;
+        reasons.push(`단어 철자/OCR 교정 ("${originalWord}" ➔ "${currentWord}")`);
+      } else if (/[@#$%^&*~|\\_=+<>\[\]{}]/.test(currentWord)) {
+        currentWord = currentWord.replace(/[@#$%^&*~|\\_=+<>\[\]{}]/g, '').trim();
+        reasons.push('단어 특수기호 오류 정제');
+      }
+    }
+
+    // 2. 뜻 내 예문 혼입 정제 및 예문/예문번역 자동 분리 + 스포일러 영단어 제거 + 비정상 구두점 정리
+    const { meaning: cleanedMeaning, exampleSentence: extractedEx, exampleTranslation: extractedExTrans } =
+      cleanMeaningAndExtractExample(
+        originalMeaning,
+        currentWord,
+        originalEx,
+        originalExTrans
+      );
+
+    let currentMeaning = cleanedMeaning;
+    let currentEx = extractedEx || originalEx || null;
+    let currentExTrans = extractedExTrans || originalExTrans || null;
+    let currentPos = originalPos;
+    let currentPron = originalPron;
+
+    if (cleanedMeaning !== originalMeaning) {
+      if (originalMeaning.includes('That is not right') || originalMeaning.includes('feel better') || originalMeaning.includes('Read this')) {
+        reasons.push('뜻 필드에 예문(영문+번역) 섞임 분리 정제');
+      } else if (originalMeaning.includes('과거분사') || originalMeaning.includes('현재분사')) {
+        reasons.push('문법 설명 단독 표기 정제');
+      } else {
+        reasons.push('뜻 구두점 및 단어 스포일러 정제');
+      }
+    }
+    if (extractedEx && extractedEx !== originalEx) {
+      reasons.push('예문 텍스트 자동 분리');
+    }
+
+    // 3. 누락되었거나 불완전한 뜻, 품사, 발음 자동 복원
+    const isMeaningMissing =
+      !currentMeaning ||
+      currentMeaning.trim() === '' ||
+      currentMeaning === '의미 미입력' ||
+      currentMeaning === '의미 검색 필요' ||
+      currentMeaning === '뜻 미입력' ||
+      !/[가-힣]/.test(currentMeaning);
+
+    const isInfoMissing = !currentPos || !currentPron;
+
+    if (isMeaningMissing || isInfoMissing) {
+      // 내장 사전 우선 검색
+      const builtin = lookupWordMeaning(currentWord.toLowerCase()) || BUILTIN_DICTIONARY[currentWord.toLowerCase()];
+      if (builtin && builtin.meaning) {
+        if (isMeaningMissing) {
+          currentMeaning = builtin.meaning;
+          reasons.push('내장 사전을 통해 의미 복원');
+        }
+        if (!currentPos && builtin.pos) currentPos = builtin.pos;
+        if (!currentPron && builtin.pron) currentPron = builtin.pron;
+      }
+
+      // 온라인 사전 검색 (필요시)
+      if ((!currentMeaning || currentMeaning === '의미 검색 필요' || isInfoMissing) && currentWord) {
+        try {
+          const searchRes = await searchWordOnline(currentWord);
+          if (searchRes) {
+            if ((!currentMeaning || currentMeaning === '의미 검색 필요') && searchRes.meaning) {
+              currentMeaning = searchRes.meaning;
+              reasons.push('온라인 사전에서 누락된 뜻 자동 수집');
+            }
+            if (!currentPos && searchRes.partOfSpeech) {
+              currentPos = searchRes.partOfSpeech;
+              reasons.push('누락된 품사(Part of Speech) 보충');
+            }
+            if (!currentPron && searchRes.pronunciation) {
+              currentPron = searchRes.pronunciation;
+              reasons.push('누락된 한글 발음 표기 보충');
+            }
+            if (!currentEx && searchRes.exampleSentence && isValidExampleForWord(searchRes.exampleSentence, currentWord)) {
+              currentEx = searchRes.exampleSentence;
+              currentExTrans = searchRes.exampleTranslation || currentExTrans;
+              reasons.push('추가 예문 자동 등록');
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 변경 여부 확인
+    const isChanged =
+      currentWord !== originalWord ||
+      currentMeaning !== originalMeaning ||
+      (currentEx || '') !== (originalEx || '') ||
+      (currentExTrans || '') !== (originalExTrans || '') ||
+      currentPos !== originalPos ||
+      currentPron !== originalPron;
+
+    if (isChanged && reasons.length > 0) {
+      fixedCount++;
+      const updatedItem: VocabularyWithItem = {
+        ...all[idx],
+        word: currentWord,
+        meaning: currentMeaning,
+        exampleSentence: currentEx,
+        exampleTranslation: currentExTrans,
+        partOfSpeech: currentPos || null,
+        pronunciation: currentPron || null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      all[idx] = updatedItem;
+      details.push({
+        id: item.id,
+        originalWord,
+        fixedWord: currentWord,
+        originalMeaning,
+        fixedMeaning: currentMeaning,
+        reasons,
+      });
+
+      // Turso DB 동기화
+      updateVocabularyInTurso(item.id, {
+        word: currentWord,
+        meaning: currentMeaning,
+        partOfSpeech: currentPos || undefined,
+        pronunciation: currentPron || undefined,
+        exampleSentence: currentEx || undefined,
+        exampleTranslation: currentExTrans || undefined,
+      }).catch(() => {});
+    }
+  }
+
+  if (fixedCount > 0) {
+    saveStoredVocabs(all);
+  }
+
+  return {
+    success: true,
+    data: {
+      totalInspected: targets.length,
+      fixedCount,
+      details,
+    },
+  };
+}
+
 export * from './phraseActions';
 export * from './passageActions';
 export * from './dictionarySearch';
 export * from './tursoVocabService';
+
 

@@ -14,3 +14,5 @@ export { PassageStudyDialog } from './PassageStudyDialog';
 export { VocabularyPreviewDialog } from './VocabularyPreviewDialog';
 export { PhrasePreviewDialog } from './PhrasePreviewDialog';
 export { BatchVocabularyDialog } from './BatchVocabularyDialog';
+export { BatchFixResultModal } from './BatchFixResultModal';
+

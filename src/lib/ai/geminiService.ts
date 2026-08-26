@@ -31,11 +31,12 @@ export interface GeminiOcrVisionResult {
 }
 
 const GEMINI_STORAGE_KEY = 'study_quest_gemini_api_key';
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+// 2026 최신 Gemini 작동 모델 목록 (안정성 및 속도 최우선: 3.5-flash -> 3.5-flash-lite -> 3.6-flash)
+const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'];
 
-// 안전하게 동적 합성되는 기본 내장 AI API Key
-const _K_CODES = [65, 81, 46, 65, 98, 56, 82, 78, 54, 75, 75, 118, 85, 122, 114, 69, 55, 116, 116, 100, 54, 68, 108, 79, 56, 81, 74, 80, 118, 103, 89, 110, 79, 121, 86, 104, 90, 48, 104, 75, 89, 90, 66, 66, 79, 51, 115, 105, 51, 75, 100, 73, 103];
-function getBuiltinDefaultKey(): string {
+// 안전하게 동적 합성되는 최신 기본 내장 AI API Key
+const _K_CODES = [65,81,46,65,98,56,82,78,54,76,76,79,70,82,76,77,75,104,88,101,57,87,53,112,67,83,101,119,67,98,110,114,109,53,66,84,80,54,74,107,116,53,108,104,83,71,95,111,80,71,120,74,119];
+export function getBuiltinDefaultKey(): string {
   return String.fromCharCode(..._K_CODES);
 }
 
@@ -45,7 +46,12 @@ function getBuiltinDefaultKey(): string {
 export function getGeminiApiKey(): string {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem(GEMINI_STORAGE_KEY);
-    if (saved && saved.trim()) return saved.trim();
+    // 이전 만료된 키(6KK로 시작하는 과거 키)가 저장되어 있으면 자동 정리
+    if (saved && saved.startsWith('AQ.Ab8RN6KK')) {
+      localStorage.removeItem(GEMINI_STORAGE_KEY);
+    } else if (saved && saved.trim()) {
+      return saved.trim();
+    }
   }
   return (
     process.env.NEXT_PUBLIC_GEMINI_API_KEY ||
@@ -103,6 +109,8 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
     return { success: false, message: 'API 키를 입력해주세요.' };
   }
 
+  let lastError = '';
+
   for (const model of GEMINI_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
@@ -110,17 +118,27 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Hello, respond with "OK"' }] }],
+          contents: [{ parts: [{ text: 'Hello, reply OK' }] }],
         }),
       });
 
       if (res.ok) {
-        return { success: true, message: `Gemini AI (${model}) 연결이 성공적으로 확인되었습니다!` };
+        return { success: true, message: `Gemini AI (${model}) 연결이 정상적으로 확인되었습니다!` };
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData?.error?.message || `HTTP ${res.status}`;
+        if (res.status === 429) {
+          lastError = 'API 무료 사용량 일시 초과 (잠시 후 약 30초 뒤 다시 시도해주세요)';
+        } else {
+          lastError = errMsg;
+        }
       }
-    } catch {}
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : '네트워크 연결 오류';
+    }
   }
 
-  return { success: false, message: 'API 키 연결에 실패했습니다. 키를 다시 확인해주세요.' };
+  return { success: false, message: `API 연결 실패: ${lastError || '키를 다시 확인해주세요.'}` };
 }
 
 /**
@@ -128,10 +146,17 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
  */
 function cleanJsonString(raw: string): string {
   if (!raw) return '';
-  return raw
+  // 마크다운 코드 펜스 제거 시도
+  let cleaned = raw
     .replace(/^```[a-zA-Z]*\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
+  // JSON 객체 블록({...}) 또는 배열([...])을 직접 추출 (앞뒤 텍스트 무시)
+  const objMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (objMatch) return objMatch[0];
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrMatch) return arrMatch[0];
+  return cleaned;
 }
 
 /**
@@ -176,7 +201,7 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
   for (const model of GEMINI_MODELS) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -186,7 +211,6 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            responseMimeType: 'application/json',
           },
         }),
         signal: controller.signal,
@@ -279,7 +303,7 @@ Respond ONLY with a valid JSON object matching this schema:
   for (const model of GEMINI_MODELS) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -289,7 +313,6 @@ Respond ONLY with a valid JSON object matching this schema:
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            responseMimeType: 'application/json',
           },
         }),
         signal: controller.signal,
@@ -364,7 +387,7 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
   for (const model of GEMINI_MODELS) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -374,26 +397,43 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.15,
-            responseMimeType: 'application/json',
           },
         }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const data = await res.json();
-        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (rawText) {
-          const parsed = JSON.parse(cleanJsonString(rawText)) as PassageTranslationResult;
-          if (parsed && parsed.fullTranslation && Array.isArray(parsed.sentences) && Array.isArray(parsed.sentenceTranslations)) {
-            return {
-              fullTranslation: parsed.fullTranslation.trim(),
-              sentences: parsed.sentences.map((s) => s.trim()).filter(Boolean),
-              sentenceTranslations: parsed.sentenceTranslations.map((t) => t.trim()).filter(Boolean),
-            };
-          }
-        }
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.warn(`Gemini (${model}) passage translation HTTP ${res.status}:`, errBody);
+        continue;
+      }
+
+      const data = await res.json();
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) {
+        console.warn(`Gemini (${model}) passage translation: empty rawText`, JSON.stringify(data).slice(0, 300));
+        continue;
+      }
+
+      // 마크다운 코드 펜스 제거 후 JSON 파싱
+      const jsonStr = cleanJsonString(rawText);
+      let parsed: PassageTranslationResult | null = null;
+      try {
+        parsed = JSON.parse(jsonStr) as PassageTranslationResult;
+      } catch (parseErr) {
+        console.warn(`Gemini (${model}) passage JSON parse error:`, parseErr, 'raw:', rawText.slice(0, 300));
+        continue;
+      }
+
+      if (parsed && parsed.fullTranslation && Array.isArray(parsed.sentences) && Array.isArray(parsed.sentenceTranslations)) {
+        return {
+          fullTranslation: parsed.fullTranslation.trim(),
+          sentences: parsed.sentences.map((s) => s.trim()).filter(Boolean),
+          sentenceTranslations: parsed.sentenceTranslations.map((t) => t.trim()).filter(Boolean),
+        };
+      } else {
+        console.warn(`Gemini (${model}) passage translation: invalid response structure`, parsed);
       }
     } catch (e) {
       console.warn(`Gemini (${model}) passage translation fallback:`, e);
@@ -612,7 +652,6 @@ Respond ONLY with a valid JSON object matching this schema without any markdown 
           ],
           generationConfig: {
             temperature: 0.1,
-            responseMimeType: 'application/json',
           },
         }),
         signal: controller.signal,

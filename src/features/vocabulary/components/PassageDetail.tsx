@@ -45,6 +45,8 @@ import type { VocabularyWithItem } from '../types';
 import type { PhraseWithItem } from '../types/phraseTypes';
 import { deleteVocabularyAction, updateVocabularyAction, addVocabularyAction } from '../services';
 import { deletePhraseAction, updatePhraseAction, addPhraseAction } from '../services/phraseActions';
+import { translatePassageWithSentences } from '@/lib/ai/geminiService';
+import { updatePassageAction } from '../services/passageActions';
 
 export interface PassageWordItem {
   word: string;
@@ -65,6 +67,7 @@ interface PassageDetailProps {
   onBack: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onUpdatePassage?: (updated: PassageItem) => void;
   onAddWordToVocab?: (word: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => void;
   onAddPhraseToVocab?: (phrase: string, meaning: string, exampleSentence?: string, exampleTranslation?: string) => void;
   onBatchAddWordsToVocab?: (items: PassageWordItem[]) => void;
@@ -76,11 +79,20 @@ export function PassageDetail({
   onBack,
   onEdit,
   onDelete,
+  onUpdatePassage,
   onAddWordToVocab,
   onAddPhraseToVocab,
   onBatchAddWordsToVocab,
   onBatchAddPhrasesToVocab,
 }: PassageDetailProps) {
+  const [currentPassage, setCurrentPassage] = useState<PassageItem>(passage);
+  const [isAutoTranslating, setIsAutoTranslating] = useState(false);
+  const [translateToast, setTranslateToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    setCurrentPassage(passage);
+  }, [passage]);
+
   const [viewMode, setViewMode] = useState<'full' | 'sentences'>('sentences');
   const [showTranslations, setShowTranslations] = useState(true);
   const [isPenMode, setIsPenMode] = useState(false);
@@ -91,6 +103,49 @@ export function PassageDetail({
   const [addedPhrases, setAddedPhrases] = useState<Set<string>>(new Set());
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+
+  // ✨ AI 자동 번역 및 문장별 1:1 해석 즉시 생성 핸들러
+  const handleGenerateAiTranslation = async () => {
+    setIsAutoTranslating(true);
+    setTranslateToast(null);
+    try {
+      const res = await translatePassageWithSentences(currentPassage.content);
+      if (res && res.fullTranslation) {
+        const updateRes = await updatePassageAction(currentPassage.id, {
+          translation: res.fullTranslation,
+          sentenceTranslations: res.sentenceTranslations,
+        });
+        const finalData = (updateRes.success && updateRes.data) ? updateRes.data : {
+          ...currentPassage,
+          translation: res.fullTranslation,
+          sentenceTranslations: res.sentenceTranslations,
+        };
+        setCurrentPassage(finalData);
+        if (onUpdatePassage) {
+          onUpdatePassage(finalData);
+        }
+        setTranslateToast({
+          type: 'success',
+          message: '✨ AI 번역 및 문장별 1:1 해석이 성공적으로 생성 및 저장되었습니다!',
+        });
+        setTimeout(() => setTranslateToast(null), 4000);
+      } else {
+        setTranslateToast({
+          type: 'error',
+          message: 'AI 번역 생성에 실패했습니다. 설정에서 Gemini 연결 상태를 확인해주세요.',
+        });
+        setTimeout(() => setTranslateToast(null), 5000);
+      }
+    } catch {
+      setTranslateToast({
+        type: 'error',
+        message: 'AI 번역 처리 중 오류가 발생했습니다.',
+      });
+      setTimeout(() => setTranslateToast(null), 5000);
+    } finally {
+      setIsAutoTranslating(false);
+    }
+  };
 
   // 🔍 단어 / 숙어 빠른 미리보기 팝업 상태
   const [previewVocab, setPreviewVocab] = useState<VocabularyWithItem | null>(null);
@@ -327,20 +382,24 @@ export function PassageDetail({
     }
   };
 
-  const sentenceList = passage.sentences && passage.sentences.length > 0
-    ? passage.sentences
-    : [passage.content];
+  const sentenceList = currentPassage.sentences && currentPassage.sentences.length > 0
+    ? currentPassage.sentences
+    : [currentPassage.content];
 
   const wordCount = useMemo(() => {
-    return passage.content.trim().split(/\s+/).filter(Boolean).length;
-  }, [passage.content]);
+    return currentPassage.content.trim().split(/\s+/).filter(Boolean).length;
+  }, [currentPassage.content]);
+
+  const hasSentenceTranslations = Boolean(
+    currentPassage.sentenceTranslations && currentPassage.sentenceTranslations.length > 0
+  );
 
   // 🔍 단어 미리보기 열기 핸들러
   const handleOpenWordPreview = (word: string, fallbackMeaning: string) => {
     try {
       const stored = getStoredVocabs();
       const existing = stored.find((v) => v.word.toLowerCase() === word.toLowerCase());
-      const sentence = findSentenceInPassage(passage.content, passage.sentences, word);
+      const sentence = findSentenceInPassage(currentPassage.content, currentPassage.sentences, word);
       if (existing) {
         setPreviewVocab(existing);
       } else {
@@ -357,8 +416,8 @@ export function PassageDetail({
           antonyms: null,
           frequency: null,
           difficulty: 2,
-          grade: passage.grade || null,
-          source: `${passage.title} 어휘`,
+          grade: currentPassage.grade || null,
+          source: `${currentPassage.title} 어휘`,
           learningItemId: '',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -374,7 +433,7 @@ export function PassageDetail({
     try {
       const stored = getStoredPhrases();
       const existing = stored.find((p) => p.phrase.toLowerCase() === phraseText.toLowerCase());
-      const sentence = findSentenceInPassage(passage.content, passage.sentences, phraseText);
+      const sentence = findSentenceInPassage(currentPassage.content, currentPassage.sentences, phraseText);
       if (existing) {
         setPreviewPhrase(existing);
       } else {
@@ -385,8 +444,8 @@ export function PassageDetail({
           exampleSentence: sentence || null,
           exampleTranslation: null,
           difficulty: 2,
-          grade: passage.grade || null,
-          source: `${passage.title} 숙어`,
+          grade: currentPassage.grade || null,
+          source: `${currentPassage.title} 숙어`,
           learningItemId: '',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -442,6 +501,22 @@ export function PassageDetail({
             문장 번역 학습 시작
           </Button>
 
+          {/* ✨ AI 즉시 번역 생성 / 재번역 버튼 */}
+          <Button
+            size="sm"
+            onClick={handleGenerateAiTranslation}
+            disabled={isAutoTranslating}
+            className="gap-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+            title="Gemini AI로 전체 지문 및 문장별 1:1 번역 즉시 자동 생성"
+          >
+            <Sparkles className={`h-3.5 w-3.5 ${isAutoTranslating ? 'animate-spin' : 'text-amber-300'}`} />
+            {isAutoTranslating
+              ? 'AI 번역 생성 중...'
+              : hasSentenceTranslations
+              ? 'AI 재번역'
+              : '✨ AI 번역 생성'}
+          </Button>
+
           <Button
             size="sm"
             variant={isPenMode ? 'default' : 'outline'}
@@ -471,7 +546,7 @@ export function PassageDetail({
               <Volume2 className="h-3.5 w-3.5 animate-pulse" /> 중지
             </Button>
           ) : (
-            <Button size="sm" variant="outline" onClick={() => handleSpeak(passage.content)} className="gap-1 text-xs">
+            <Button size="sm" variant="outline" onClick={() => handleSpeak(currentPassage.content)} className="gap-1 text-xs">
               <Volume2 className="h-3.5 w-3.5" /> 전체 듣기
             </Button>
           )}
@@ -482,8 +557,14 @@ export function PassageDetail({
           </Button>
 
           {onEdit && (
-            <Button size="sm" variant="outline" onClick={onEdit} className="gap-1 text-xs">
-              <Edit3 className="h-3.5 w-3.5" /> 수정
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onEdit}
+              className="gap-1 text-xs font-semibold border-primary/50 text-primary hover:bg-primary/10"
+              title="지문 제목, 내용 및 번역 직접 수정"
+            >
+              <Edit3 className="h-3.5 w-3.5" /> 지문 수정
             </Button>
           )}
 
@@ -495,9 +576,63 @@ export function PassageDetail({
         </div>
       </div>
 
+      {/* AI 번역 결과 토스트/알림 */}
+      {translateToast && (
+        <div
+          className={`p-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top-1 ${
+            translateToast.type === 'success'
+              ? 'bg-green-500/10 text-green-700 dark:text-green-300 border border-green-500/30'
+              : 'bg-destructive/10 text-destructive border border-destructive/30'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {translateToast.type === 'success' ? (
+              <Sparkles className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+            ) : (
+              <Trash2 className="h-4 w-4 shrink-0" />
+            )}
+            <span>{translateToast.message}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setTranslateToast(null)}
+            className="h-6 text-[11px] px-2 py-0"
+          >
+            닫기
+          </Button>
+        </div>
+      )}
+
       {reanalyzeMessage && (
         <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 text-xs font-semibold animate-in slide-in-from-top-1">
           {reanalyzeMessage}
+        </div>
+      )}
+
+      {/* 지문 번역 미등록 시 안내 배너 */}
+      {!hasSentenceTranslations && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 flex-wrap animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+            <Sparkles className="h-4 w-4 text-amber-500 animate-pulse shrink-0" />
+            <span>이 지문은 문장별 한국어 해석이 아직 없습니다. AI로 문장별 1:1 번역을 즉시 자동 완성해보세요!</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleGenerateAiTranslation}
+            disabled={isAutoTranslating}
+            className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold gap-1.5 h-8 shadow-xs"
+          >
+            {isAutoTranslating ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" /> 번역 생성 중...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" /> ✨ 지금 AI 자동 번역 생성
+              </>
+            )}
+          </Button>
         </div>
       )}
 
@@ -505,16 +640,16 @@ export function PassageDetail({
       <div className="space-y-1.5 bg-card/90 backdrop-blur-xs p-4 rounded-xl border border-border shadow-xs">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="secondary" className="text-xs">
-            난이도 {passage.difficulty}단계
+            난이도 {currentPassage.difficulty}단계
           </Badge>
           <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded">
-            {passage.source}
+            {currentPassage.source}
           </span>
           <span className="text-xs text-muted-foreground ml-auto">
             {wordCount}단어 · {sentenceList.length}문장 · <strong className="text-indigo-600 dark:text-indigo-400">{extractedPhrases.length}</strong>개 숙어 판독
           </span>
         </div>
-        <h2 className="text-xl font-bold text-foreground pt-1">{passage.title}</h2>
+        <h2 className="text-xl font-bold text-foreground pt-1">{currentPassage.title}</h2>
       </div>
 
       {/* 뷰 모드 전환 및 번역 토글 바 */}
@@ -583,19 +718,19 @@ export function PassageDetail({
                 </span>
               </div>
               <p className="text-base sm:text-lg leading-relaxed text-foreground font-serif tracking-normal whitespace-pre-line select-text">
-                {passage.content}
+                {currentPassage.content}
               </p>
             </CardContent>
           </Card>
 
-          {passage.translation && (
+          {currentPassage.translation && (
             <Card className="bg-muted/30 border-border">
               <CardContent className="p-4 space-y-1">
                 <h4 className="text-xs font-bold text-muted-foreground flex items-center gap-1">
                   <Sparkles className="h-3.5 w-3.5 text-amber-500" /> 한글 해석
                 </h4>
                 <p className="text-sm leading-relaxed text-muted-foreground font-sans whitespace-pre-line">
-                  {passage.translation}
+                  {currentPassage.translation}
                 </p>
               </CardContent>
             </Card>
@@ -604,7 +739,7 @@ export function PassageDetail({
       ) : (
         <div className="space-y-3.5">
           {sentenceList.map((sentence, idx) => {
-            const sentenceTrans = passage.sentenceTranslations?.[idx];
+            const sentenceTrans = currentPassage.sentenceTranslations?.[idx];
             const hasHandwriting = Boolean(handwritingMap[idx]);
 
             return (
@@ -634,11 +769,25 @@ export function PassageDetail({
                   </div>
 
                   {showTranslations && (
-                    <div className="ml-9 p-2.5 rounded-lg bg-muted/40 border border-border/70 text-xs sm:text-sm text-muted-foreground leading-relaxed animate-in fade-in flex items-start gap-2">
-                      <span className="font-semibold text-primary/80 shrink-0 select-none">해석:</span>
-                      <span className="flex-1 text-foreground/90">
-                        {sentenceTrans || (idx === 0 && passage.translation ? passage.translation : '한국어 번역이 준비 중입니다.')}
-                      </span>
+                    <div className="ml-9 p-2.5 rounded-lg bg-muted/40 border border-border/70 text-xs sm:text-sm text-muted-foreground leading-relaxed animate-in fade-in flex items-start justify-between gap-2 flex-wrap">
+                      <div className="flex items-start gap-2 flex-1">
+                        <span className="font-semibold text-primary/80 shrink-0 select-none">해석:</span>
+                        <span className="flex-1 text-foreground/90">
+                          {sentenceTrans || (idx === 0 && currentPassage.translation ? currentPassage.translation : '한국어 번역이 준비 중입니다.')}
+                        </span>
+                      </div>
+                      {!sentenceTrans && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleGenerateAiTranslation}
+                          disabled={isAutoTranslating}
+                          className="h-6 text-[11px] px-2 py-0 gap-1 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 shrink-0"
+                        >
+                          <Sparkles className="h-3 w-3 text-amber-500" />
+                          AI 번역 생성
+                        </Button>
+                      )}
                     </div>
                   )}
 
@@ -649,7 +798,7 @@ export function PassageDetail({
                         손글씨 해석 및 펜 노트 ({idx + 1}번 문장)
                       </div>
                       <TabletPenCanvas
-                        id={`sentence-canvas-${passage.id}-${idx}`}
+                        id={`sentence-canvas-${currentPassage.id}-${idx}`}
                         initialDataUrl={handwritingMap[idx]}
                         onChange={(dataUrl) => handleHandwritingChange(idx, dataUrl)}
                         height={100}
